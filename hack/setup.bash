@@ -78,12 +78,12 @@ checkout_kcp_baseline() {
 
 do_kube() {
     clone_kube
-    checkout_kube_baseline "$KUBE_TAG"
+    checkout_kube_baseline "$NEW_KUBE_TAG"
 }
 
 do_kcp() {
     clone_kcp
-    checkout_kcp_baseline "$KUBE_TAG"
+    checkout_kcp_baseline "$NEW_KUBE_TAG"
 }
 
 case "$@" in

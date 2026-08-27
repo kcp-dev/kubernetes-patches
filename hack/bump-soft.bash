@@ -50,4 +50,4 @@ main() {
 
 # TODO: don't think this is needed
 # unset GOWORK
-main "$KUBE_0_TAG"
+main "$NEW_KUBE_0_TAG"

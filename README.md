@@ -94,7 +94,7 @@ If hunks fail to apply they need to be reviewed and adjusted manually.
 ```bash
 git -C kubernetes show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go \
     > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_base.go"
-git -C kubernetes show v${KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go \
+git -C kubernetes show v${NEW_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/reflector.go \
     > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_upstream.go"
 git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector.go \
     "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/reflector_base.go" \
@@ -104,7 +104,7 @@ git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/re
 ```bash
 git -C kubernetes show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go \
     > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_base.go"
-git -C kubernetes show v${KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go \
+git -C kubernetes show v${NEW_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/controller.go \
     > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_upstream.go"
 git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller.go \
     "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/reflector/controller_base.go" \
@@ -118,7 +118,7 @@ Review the changes and fix any merge conflicts. After deleting the `_base.go` an
 ```bash
 git -C kubernetes show v${OLD_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go \
     > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_base.go"
-git -C kubernetes show v${KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go \
+git -C kubernetes show v${NEW_KUBE_1_TAG}:staging/src/k8s.io/client-go/tools/cache/shared_informer.go \
     > "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_upstream.go"
 git -C kcp merge-file staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer.go \
     "$PATCHES_ROOT/kcp/staging/src/github.com/kcp-dev/apimachinery/third_party/informers/shared_informer_base.go" \
@@ -139,7 +139,7 @@ kubernetes repository:
 
 ```bash
 cd kubernetes
-git diff v${KUBE_1_TAG}...v${OLD_KUBE_1_TAG} -- staging/src/k8s.io/code-generator
+git diff v${NEW_KUBE_1_TAG}...v${OLD_KUBE_1_TAG} -- staging/src/k8s.io/code-generator
 popd
 ```
 
