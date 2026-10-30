@@ -72,4 +72,4 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/mutating/p
 +				clusterName,
  			)
  		},
- 		func(a authorizer.Authorizer, m *matching.Matcher, client kubernetes.Interface) generic.Dispatcher[PolicyHook] {
+ 		func(a authorizer.UnconditionalAuthorizer, m *matching.Matcher, client kubernetes.Interface) generic.Dispatcher[PolicyHook] {

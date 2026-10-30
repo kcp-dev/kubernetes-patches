@@ -45,7 +45,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/installer.go b/staging/s
  	"sigs.k8s.io/structured-merge-diff/v6/fieldpath"
  
  	"golang.org/x/text/cases"
-@@ -494,7 +495,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
+@@ -495,7 +496,7 @@ func (a *APIInstaller) registerResourceHandlers(path string, storage rest.Storag
  		if err != nil {
  			return nil, nil, err
  		}

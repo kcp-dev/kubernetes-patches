@@ -11,12 +11,14 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
  .../pkg/registry/customresource/strategy.go   |  4 +-
  .../endpoints/request/context_shard_kcp.go    | 64 +++++++++++++++++++
- .../pkg/registry/generic/registry/store.go    | 20 ++++++
+ .../registry/generic/registry/keyfuncs_kcp.go | 14 +++-
+ .../pkg/registry/generic/registry/store.go    | 16 ++++-
  .../apiserver/pkg/registry/rest/meta.go       | 13 +++-
  .../apiserver/pkg/registry/rest/update.go     |  7 +-
  .../apiserver/pkg/storage/etcd3/store_kcp.go  |  8 ++-
  .../apiserver/pkg/storage/etcd3/watcher.go    | 11 +++-
- 7 files changed, 119 insertions(+), 8 deletions(-)
+ .../pkg/storage/etcd3/watcher_test.go         | 11 ++--
+ 9 files changed, 131 insertions(+), 17 deletions(-)
  create mode 100644 staging/src/k8s.io/apiserver/pkg/endpoints/request/context_shard_kcp.go
 
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/strategy.go
@@ -109,11 +111,20 @@ new file mode 100644
 +	}
 +	return shard
 +}
-diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
---- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-+++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-@@ -268,11 +268,18 @@ const (
- // to resource directories enforcing namespace rules.
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/keyfuncs_kcp.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/keyfuncs_kcp.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/keyfuncs_kcp.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/keyfuncs_kcp.go
+@@ -25,16 +25,24 @@ import (
+ 
+ // NoNamespaceKeyRootFunc is the default function for constructing storage
+ // paths to resource directories. In kcp, all storage keys are scoped by the
+-// logical cluster of the request, i.e. <prefix>/<clusterName>[/...], so that
+-// workspaces are isolated in etcd. Wildcard requests span all clusters and
+-// therefore stay at <prefix>.
++// shard (if set) and the logical cluster of the request, i.e.
++// <prefix>[/<shardName>]/<clusterName>[/...], so that workspaces are isolated
++// in etcd. Wildcard requests span all shards/clusters and therefore stay at
++// <prefix>.
  func NoNamespaceKeyRootFunc(ctx context.Context, prefix string) string {
  	key := prefix
 +	shard := genericapirequest.ShardFrom(ctx)
@@ -131,7 +142,20 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
  	if !cluster.Wildcard {
  		key += "/" + cluster.Name.String()
  	}
-@@ -522,6 +529,12 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -547,7 +547,8 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
+ 	var finishCreate FinishFunc = finishNothing
+ 
+ 	// Init metadata as early as possible.
+-	if objectMeta, err := meta.Accessor(obj); err != nil {
++	objectMeta, err := meta.Accessor(obj)
++	if err != nil {
+ 		return nil, err
+ 	} else {
+ 		rest.FillObjectMetaSystemFields(objectMeta)
+@@ -570,6 +571,12 @@ func (e *Store) create(ctx context.Context, obj runtime.Object, createValidation
  	if err := rest.BeforeCreate(e.CreateStrategy, ctx, obj); err != nil {
  		return nil, err
  	}
@@ -144,7 +168,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
  	// at this point we have a fully formed object.  It is time to call the validators that the apiserver
  	// handling chain wants to enforce.
  	if createValidation != nil {
-@@ -1092,6 +1105,13 @@ func (e *Store) updateForGracefulDeletionAndFinalizers(ctx context.Context, name
+@@ -1144,6 +1151,13 @@ func (e *Store) updateForGracefulDeletionAndFinalizers(ctx context.Context, name
  			if err != nil {
  				return nil, err
  			}
@@ -198,7 +222,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/meta.go b/staging/sr
 diff --git a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
 --- a/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
 +++ b/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go
-@@ -123,7 +123,12 @@ func BeforeUpdate(strategy RESTUpdateStrategy, ctx context.Context, obj, old run
+@@ -131,7 +131,12 @@ func BeforeUpdate(strategy RESTUpdateStrategy, ctx context.Context, obj, old run
  	if err != nil {
  		return err
  	}
@@ -249,9 +273,9 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/stagi
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-@@ -97,7 +97,9 @@ type watchChan struct {
- 	resultChan               chan watch.Event
- 	getResourceSizeEstimator func() *resourceSizeEstimator
+@@ -119,7 +119,9 @@ type watchChan struct {
+ 	incomingEventLogger *blockLogger
+ 	resultLogger        *blockLogger
  
 +	// kcp
  	cluster    *genericapirequest.Cluster
@@ -259,7 +283,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  	crdRequest bool
  }
  
-@@ -113,6 +115,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -135,6 +137,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	if err != nil {
  		return nil, err
  	}
@@ -267,25 +291,25 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  
  	if opts.Recursive && !strings.HasSuffix(key, "/") {
  		return nil, fmt.Errorf(`recursive key needs to end with "/"`)
-@@ -124,7 +127,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -146,7 +149,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	if err != nil {
  		return nil, err
  	}
--	wc := w.createWatchChan(ctx, key, startWatchRV, cluster, opts.Recursive, opts.ProgressNotify, opts.Predicate, transformer)
-+	wc := w.createWatchChan(ctx, key, startWatchRV, shard, cluster, opts.Recursive, opts.ProgressNotify, opts.Predicate, transformer)
+-	wc := w.createWatchChan(ctx, key, startWatchRV, cluster, opts.Recursive, opts.ProgressNotify, opts.RecordTimestamps, opts.Predicate, transformer)
++	wc := w.createWatchChan(ctx, key, startWatchRV, shard, cluster, opts.Recursive, opts.ProgressNotify, opts.RecordTimestamps, opts.Predicate, transformer)
  	go wc.run(isInitialEventsEndBookmarkRequired(opts), areInitialEventsRequired(rev, opts))
  
  	// For etcd watch we don't have an easy way to answer whether the watch
-@@ -137,7 +140,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+@@ -159,7 +162,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
  	return wc, nil
  }
  
--func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cluster *genericapirequest.Cluster, recursive, progressNotify bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
-+func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, shard genericapirequest.Shard, cluster *genericapirequest.Cluster, recursive, progressNotify bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
+-func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cluster *genericapirequest.Cluster, recursive, progressNotify, recordTimestamps bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
++func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, shard genericapirequest.Shard, cluster *genericapirequest.Cluster, recursive, progressNotify, recordTimestamps bool, pred storage.SelectionPredicate, transformer value.Transformer) *watchChan {
  	wc := &watchChan{
  		watcher:                  w,
  		key:                      key,
-@@ -149,7 +152,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cl
+@@ -172,7 +175,9 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, cl
  		resultChan:               make(chan watch.Event, outgoingBufSize),
  		getResourceSizeEstimator: w.getResourceSizeEstimator,
  
@@ -295,7 +319,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		crdRequest: kcp.CustomResourceIndicatorFrom(ctx),
  	}
  	if pred.Empty() {
-@@ -729,6 +734,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -848,6 +853,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -303,7 +327,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(curObj, clusterName, shardName)
  	}
  	// We need to decode prevValue, only if this is deletion event or
-@@ -750,6 +756,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -869,6 +875,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -311,3 +335,59 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(oldObj, clusterName, shardName)
  	}
  	return curObj, oldObj, nil
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
+@@ -319,6 +319,7 @@ func TestWatchChanSync(t *testing.T) {
+ 					origCtx,
+ 					testCase.watchKey,
+ 					0,
++					"",
+ 					&genericapirequest.Cluster{Wildcard: true},
+ 					true,
+ 					false,
+@@ -410,7 +411,7 @@ func TestWatchChanSyncStreamFallsBackToPaginated(t *testing.T) {
+ 	kvWrapper.streamKV = unimplementedRangeStreamKV()
+ 	store.client.KV = kvWrapper
+ 
+-	w := store.watcher.createWatchChan(origCtx, "/pods/", 0, &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
++	w := store.watcher.createWatchChan(origCtx, "/pods/", 0, "", &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
+ 
+ 	if err := w.sync(); err != nil {
+ 		t.Fatalf("sync failed: %v", err)
+@@ -439,7 +440,7 @@ func TestWatchChanSyncStreamFallsBackToPaginated(t *testing.T) {
+ 
+ func drainSync(t *testing.T, store *store, ctx context.Context, sync func(*watchChan) error) map[string]*event {
+ 	t.Helper()
+-	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
++	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, "", &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
+ 	if err := sync(wc); err != nil {
+ 		t.Fatalf("sync failed: %v", err)
+ 	}
+@@ -475,7 +476,7 @@ func TestWatchChanSyncStreamCompactionError(t *testing.T) {
+ 	legacyregistry.Reset()
+ 	t.Cleanup(legacyregistry.Reset)
+ 
+-	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
++	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, "", &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
+ 	if err := wc.syncStreamRecursive(); !apierrors.IsResourceExpired(err) {
+ 		t.Fatalf("expected ResourceExpired from a compacted revision, got %T %v", err, err)
+ 	}
+@@ -502,7 +503,7 @@ func TestWatchChanSyncStreamMetrics(t *testing.T) {
+ 		legacyregistry.Reset()
+ 		t.Cleanup(legacyregistry.Reset)
+ 
+-		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
++		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, "", &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
+ 		if err := wc.syncStreamRecursive(); err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -525,7 +526,7 @@ etcd_requests_total{group="",operation="listStream",resource="pods"} 1
+ 		legacyregistry.Reset()
+ 		t.Cleanup(legacyregistry.Reset)
+ 
+-		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
++		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, "", &genericapirequest.Cluster{Wildcard: true}, true, false, false, storage.Everything, nil)
+ 		err := wc.syncStreamRecursive()
+ 		if grpcstatus.Code(err) != grpccodes.Unimplemented {
+ 			t.Fatalf("expected Unimplemented error, got %v", err)

@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Mon, 1 Jun 2026 07:48:17 +0200
+Subject: [PATCH] FIXUP: clusterize controllers
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ .../resourcequota/resource_quota_controller.go   | 16 +---------------
+ .../resourcequota/resource_quota_monitor.go      |  2 --
+ 2 files changed, 1 insertion(+), 17 deletions(-)
+
+diff --git a/pkg/controller/resourcequota/resource_quota_controller.go b/pkg/controller/resourcequota/resource_quota_controller.go
+--- a/pkg/controller/resourcequota/resource_quota_controller.go
++++ b/pkg/controller/resourcequota/resource_quota_controller.go
+@@ -20,7 +20,6 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"reflect"
+-	"strconv"
+ 	"sync"
+ 	"time"
+ 
+@@ -364,11 +363,6 @@ func (rq *Controller) syncResourceQuotaFromKey(ctx context.Context, key string)
+ 	return rq.syncResourceQuota(ctx, resourceQuota)
+ }
+ 
+-const (
+-	kcpClusterScopedQuotaNamespace                 = "admin"
+-	kcpExperimentalClusterScopedQuotaAnnotationKey = "experimental.quota.kcp.io/cluster-scoped"
+-)
+-
+ // syncResourceQuota runs a complete sync of resource quota status across all known kinds
+ func (rq *Controller) syncResourceQuota(ctx context.Context, resourceQuota *v1.ResourceQuota) (err error) {
+ 	// quota is dirty if any part of spec hard limits differs from the status hard limits
+@@ -387,15 +381,7 @@ func (rq *Controller) syncResourceQuota(ctx context.Context, resourceQuota *v1.R
+ 
+ 	var errs []error
+ 
+-	// kcp edits for cluster scoped quota
+-	clusterScoped, _ := strconv.ParseBool(resourceQuota.Annotations[kcpExperimentalClusterScopedQuotaAnnotationKey])
+-
+-	namespaceToCheck := resourceQuota.Namespace
+-	if namespaceToCheck == kcpClusterScopedQuotaNamespace && clusterScoped {
+-		namespaceToCheck = ""
+-	}
+-
+-	newUsage, err := quota.CalculateUsage(namespaceToCheck, resourceQuota.Spec.Scopes, hardLimits, rq.registry, resourceQuota.Spec.ScopeSelector)
++	newUsage, err := quota.CalculateUsage(resourceQuota.Namespace, resourceQuota.Spec.Scopes, hardLimits, rq.registry, resourceQuota.Spec.ScopeSelector)
+ 	if err != nil {
+ 		// if err is non-nil, remember it to return, but continue updating status with any resources in newUsage
+ 		errs = append(errs, err)
+diff --git a/pkg/controller/resourcequota/resource_quota_monitor.go b/pkg/controller/resourcequota/resource_quota_monitor.go
+--- a/pkg/controller/resourcequota/resource_quota_monitor.go
++++ b/pkg/controller/resourcequota/resource_quota_monitor.go
+@@ -238,7 +238,6 @@ func (qm *QuotaMonitor) SyncMonitors(ctx context.Context, resources map[schema.G
+ 	for _, monitor := range toRemove {
+ 		if monitor.stopCh != nil {
+ 			close(monitor.stopCh)
+-			monitor.stopCh = nil
+ 		}
+ 	}
+ 
+@@ -345,7 +344,6 @@ func (qm *QuotaMonitor) Run(ctx context.Context) {
+ 		if monitor.stopCh != nil {
+ 			stopped++
+ 			close(monitor.stopCh)
+-			monitor.stopCh = nil
+ 		}
+ 	}
+ 	qm.monitors = nil

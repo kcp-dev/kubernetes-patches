@@ -22,12 +22,13 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/generic/w
  	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/klog/v2"
  
-@@ -139,7 +138,7 @@ func NewWebhook(handler *admission.Handler, configFile io.Reader, sourceFactory
- 		namespaceMatcher:   &namespace.Matcher{},
- 		objectMatcher:      &object.Matcher{},
- 		dispatcher:         dispatcherFactory(&cm),
--		filterCompiler:     cel.NewConditionCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion())),
-+		filterCompiler:     sharedFilterCompiler,
+@@ -152,8 +151,8 @@ func NewWebhook(handler *admission.Handler, configFile io.Reader, sourceFactory
+ 		namespaceMatcher:           &namespace.Matcher{},
+ 		objectMatcher:              &object.Matcher{},
+ 		dispatcher:                 dispatcherFactory(&cm),
+-		filterCompiler:             cel.NewConditionCompiler(environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion())),
+ 		excludedAdmissionResources: sets.New[schema.GroupResource](),
++		filterCompiler:             sharedFilterCompiler,
  	}, nil
  }
  

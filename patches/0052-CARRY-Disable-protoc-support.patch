@@ -16,7 +16,7 @@ Subject: [PATCH] CARRY: Disable protoc support
 diff --git a/hack/update-codegen.sh b/hack/update-codegen.sh
 --- a/hack/update-codegen.sh
 +++ b/hack/update-codegen.sh
-@@ -798,7 +798,6 @@ function codegen::clients() {
+@@ -809,7 +809,6 @@ function codegen::clients() {
          --input-base="k8s.io/api" \
          --plural-exceptions "${PLURAL_EXCEPTIONS}" \
          --apply-configuration-package "${APPLYCONFIG_PKG}" \
@@ -27,7 +27,7 @@ diff --git a/hack/update-codegen.sh b/hack/update-codegen.sh
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
-@@ -144,11 +144,6 @@ func BuildGenericConfig(
+@@ -158,11 +158,6 @@ func BuildGenericConfig(
  		return
  	}
  
@@ -42,11 +42,12 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh b/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
 --- a/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/apiextensions-apiserver/hack/update-codegen.sh
-@@ -53,5 +53,4 @@ kube::codegen::gen_client \
+@@ -55,6 +55,5 @@ kube::codegen::gen_client \
      --output-pkg "${THIS_PKG}/pkg/client" \
      --versioned-name "clientset" \
      --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
 -    --prefers-protobuf \
+     --lint-rules known-tags-only,require-explicit-disablement \
      "${SCRIPT_ROOT}/pkg/apis"
 diff --git a/staging/src/k8s.io/client-go/gentype/type.go b/staging/src/k8s.io/client-go/gentype/type.go
 --- a/staging/src/k8s.io/client-go/gentype/type.go
@@ -63,14 +64,14 @@ diff --git a/staging/src/k8s.io/client-go/gentype/type.go b/staging/src/k8s.io/c
 diff --git a/staging/src/k8s.io/code-generator/kube_codegen.sh b/staging/src/k8s.io/code-generator/kube_codegen.sh
 --- a/staging/src/k8s.io/code-generator/kube_codegen.sh
 +++ b/staging/src/k8s.io/code-generator/kube_codegen.sh
-@@ -722,7 +722,6 @@ function kube::codegen::gen_client() {
+@@ -757,7 +757,6 @@ function kube::codegen::gen_client() {
          --apply-configuration-package "${applyconfig_pkg}" \
          --input-base "$(cd "${in_dir}" && pwd -P)" `# must be absolute path or Go import path"` \
          --plural-exceptions "${plural_exceptions}" \
 -        --prefers-protobuf="${prefers_protobuf}" \
+         "${lint_args[@]:+"${lint_args[@]}"}" \
          "${inputs[@]}"
  
-     if [ "${watchable}" == "true" ]; then
 diff --git a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
 --- a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh
@@ -83,9 +84,10 @@ diff --git a/staging/src/k8s.io/kube-aggregator/hack/update-codegen.sh b/staging
 diff --git a/staging/src/k8s.io/metrics/hack/update-codegen.sh b/staging/src/k8s.io/metrics/hack/update-codegen.sh
 --- a/staging/src/k8s.io/metrics/hack/update-codegen.sh
 +++ b/staging/src/k8s.io/metrics/hack/update-codegen.sh
-@@ -36,5 +36,4 @@ kube::codegen::gen_client \
+@@ -37,6 +37,5 @@ kube::codegen::gen_client \
      --output-dir "${SCRIPT_ROOT}/pkg/client" \
      --output-pkg "${THIS_PKG}/pkg/client" \
      --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
 -    --prefers-protobuf \
+     --lint-rules known-tags-only,require-explicit-disablement \
      "${SCRIPT_ROOT}/pkg/apis"
