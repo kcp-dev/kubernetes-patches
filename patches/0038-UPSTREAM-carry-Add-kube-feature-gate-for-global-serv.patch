@@ -18,7 +18,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
 --- a/pkg/features/kube_features.go
 +++ b/pkg/features/kube_features.go
-@@ -2375,6 +2375,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
+@@ -2525,6 +2525,9 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
  		{Version: version.MustParse("1.32"), Default: false, PreRelease: featuregate.Alpha},
  		{Version: version.MustParse("1.36"), Default: true, PreRelease: featuregate.Beta},
  	},

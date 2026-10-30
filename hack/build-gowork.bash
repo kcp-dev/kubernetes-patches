@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-log() { echo ">>> $@"; }
+set -euo pipefail
+
+log() { echo ">>> $*"; }
 die() { log "$@"; exit 1; }
 cd "$(dirname $0)/.."
 

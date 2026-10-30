@@ -8,24 +8,28 @@ Can be squashed with 'UPSTREAM: <carry>: storage/etcd3: clusterize'
 On-behalf-of: SAP robert.vasek@sap.com
 Signed-off-by: Robert Vasek <robert.vasek@clyso.com>
 ---
- .../apiserver/pkg/storage/etcd3/store.go      |   2 +-
+ .../apiserver/pkg/storage/etcd3/store.go      |   6 +-
  .../apiserver/pkg/storage/etcd3/store_kcp.go  | 121 +++++++++--
  .../pkg/storage/etcd3/store_kcp_test.go       | 202 ++++++++++++++++--
  .../apiserver/pkg/storage/etcd3/watcher.go    |   4 +-
- 4 files changed, 287 insertions(+), 42 deletions(-)
+ 4 files changed, 289 insertions(+), 44 deletions(-)
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
-@@ -879,7 +879,7 @@ func (s *store) GetList(ctx context.Context, key string, opts storage.ListOption
+@@ -1072,9 +1072,9 @@ func (s *store) processListItem(ctx context.Context, kv *mvccpb.KeyValue, pred s
+ 	default:
+ 	}
  
- 			// kcp
- 			clusterName := adjustClusterNameIfWildcard(shard, cluster, crdIndicator, keyPrefix, string(kv.Key))
+-			// kcp
+-			clusterName := adjustClusterNameIfWildcard(shard, cluster, crdIndicator, keyPrefix, string(kv.Key))
 -			shardName := adjustShardNameIfWildcard(shard, keyPrefix, string(kv.Key))
-+			shardName := adjustShardNameIfWildcard(shard, cluster, crdIndicator, keyPrefix, string(kv.Key))
- 			obj, err := s.decodeListItem(ctx, data, kv.ModRevision, s.codec, s.versioner, newItemFunc, clusterName, shardName)
- 			if err != nil {
- 				recordDecodeError(s.groupResource, string(kv.Key))
++	// kcp
++	clusterName := adjustClusterNameIfWildcard(shard, cluster, crdIndicator, keyPrefix, string(kv.Key))
++	shardName := adjustShardNameIfWildcard(shard, cluster, crdIndicator, keyPrefix, string(kv.Key))
+ 	obj, err := s.decodeListItem(ctx, data, kv.ModRevision, s.codec, s.versioner, newItemFunc, clusterName, shardName)
+ 	if err != nil {
+ 		recordDecodeError(s.groupResource, string(kv.Key))
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp.go
@@ -442,7 +446,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_kcp_test.go b/
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
-@@ -734,7 +734,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -853,7 +853,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)
@@ -451,7 +455,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging
  		annotateDecodedObjectWith(curObj, clusterName, shardName)
  	}
  	// We need to decode prevValue, only if this is deletion event or
-@@ -756,7 +756,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+@@ -875,7 +875,7 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
  
  		// kcp: apply clusterName to the decoded object, as the name is not persisted in storage.
  		clusterName := adjustClusterNameIfWildcard(wc.shard, wc.cluster, wc.crdRequest, wc.key, e.key)

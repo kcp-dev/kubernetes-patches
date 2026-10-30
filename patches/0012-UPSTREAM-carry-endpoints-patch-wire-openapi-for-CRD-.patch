@@ -15,7 +15,7 @@ Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go
-@@ -57,6 +57,7 @@ import (
+@@ -58,6 +58,7 @@ import (
  	"k8s.io/apiserver/pkg/util/dryrun"
  	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/component-base/tracing"
@@ -23,7 +23,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/stag
  )
  
  const (
-@@ -441,6 +442,7 @@ type smpPatcher struct {
+@@ -452,6 +453,7 @@ type smpPatcher struct {
  	// Schema
  	schemaReferenceObj runtime.Object
  	fieldManager       *managedfields.FieldManager
@@ -31,7 +31,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/stag
  }
  
  func (p *smpPatcher) applyPatchToCurrentObject(requestContext context.Context, currentObject runtime.Object) (runtime.Object, error) {
-@@ -454,7 +456,7 @@ func (p *smpPatcher) applyPatchToCurrentObject(requestContext context.Context, c
+@@ -465,7 +467,7 @@ func (p *smpPatcher) applyPatchToCurrentObject(requestContext context.Context, c
  	if err != nil {
  		return nil, err
  	}
@@ -40,7 +40,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/stag
  		return nil, err
  	}
  	// Convert the object back to the hub version
-@@ -550,7 +552,17 @@ func strategicPatchObject(
+@@ -561,7 +563,17 @@ func strategicPatchObject(
  	objToUpdate runtime.Object,
  	schemaReferenceObj runtime.Object,
  	validationDirective string,
@@ -58,7 +58,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/stag
  	originalObjMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(originalObject)
  	if err != nil {
  		return err
-@@ -569,7 +581,7 @@ func strategicPatchObject(
+@@ -580,7 +592,7 @@ func strategicPatchObject(
  		}
  	}
  
@@ -67,7 +67,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/stag
  		return err
  	}
  	return nil
-@@ -663,10 +675,17 @@ func (p *patcher) patchResource(ctx context.Context, scope *RequestScope) (runti
+@@ -674,10 +686,17 @@ func (p *patcher) patchResource(ctx context.Context, scope *RequestScope) (runti
  		if err != nil {
  			return nil, false, err
  		}
@@ -85,7 +85,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go b/stag
  		}
  	// this case is unreachable if ServerSideApply is not enabled because we will have already rejected the content type
  	case types.ApplyYAMLPatchType:
-@@ -749,8 +768,12 @@ func applyPatchToObject(
+@@ -760,8 +779,12 @@ func applyPatchToObject(
  	schemaReferenceObj runtime.Object,
  	strictErrs []error,
  	validationDirective string,
