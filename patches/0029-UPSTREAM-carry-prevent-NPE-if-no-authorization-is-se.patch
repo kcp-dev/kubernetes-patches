@@ -11,7 +11,7 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 diff --git a/pkg/controlplane/apiserver/options/options.go b/pkg/controlplane/apiserver/options/options.go
 --- a/pkg/controlplane/apiserver/options/options.go
 +++ b/pkg/controlplane/apiserver/options/options.go
-@@ -264,7 +264,9 @@ func (o *Options) Complete(ctx context.Context, alternateDNS []string, alternate
+@@ -262,7 +262,9 @@ func (o *Options) Complete(ctx context.Context, alternateDNS []string, alternate
  	}
  
  	// put authorization options in final state

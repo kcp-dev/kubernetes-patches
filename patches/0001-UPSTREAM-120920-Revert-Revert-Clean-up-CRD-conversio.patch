@@ -53,7 +53,7 @@ diff --git a/cmd/kube-apiserver/app/config.go b/cmd/kube-apiserver/app/config.go
  	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
  	"k8s.io/kubernetes/pkg/api/legacyscheme"
  	"k8s.io/kubernetes/pkg/controlplane"
-@@ -92,8 +92,13 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
+@@ -93,8 +93,13 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
  	}
  	c.KubeAPIs = kubeAPIs
  
@@ -117,7 +117,7 @@ diff --git a/pkg/controlplane/apiserver/samples/generic/server/config.go b/pkg/c
  	"k8s.io/apimachinery/pkg/runtime"
  	"k8s.io/apiserver/pkg/util/webhook"
  	aggregatorapiserver "k8s.io/kube-aggregator/pkg/apiserver"
-@@ -95,7 +96,11 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
+@@ -96,7 +97,11 @@ func NewConfig(opts options.CompletedOptions) (*Config, error) {
  	c.ControlPlane = kubeAPIs
  
  	authInfoResolver := webhook.NewDefaultAuthenticationInfoResolverWrapper(kubeAPIs.ProxyTransport, kubeAPIs.Generic.EgressSelector, kubeAPIs.Generic.LoopbackClientConfig, kubeAPIs.Generic.TracerProvider)
@@ -138,10 +138,10 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
  	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 +	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
  	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
  	externalinformers "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
- 	"k8s.io/apiextensions-apiserver/pkg/controller/apiapproval"
-@@ -47,7 +48,6 @@ import (
+@@ -48,7 +49,6 @@ import (
  	"k8s.io/apiserver/pkg/registry/rest"
  	genericapiserver "k8s.io/apiserver/pkg/server"
  	serverstorage "k8s.io/apiserver/pkg/server/storage"
@@ -149,7 +149,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	"k8s.io/klog/v2"
  )
  
-@@ -83,10 +83,8 @@ type ExtraConfig struct {
+@@ -84,10 +84,8 @@ type ExtraConfig struct {
  	// the CRD Establishing will be hold by 5 seconds.
  	MasterCount int
  
@@ -162,7 +162,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  }
  
  type Config struct {
-@@ -191,8 +189,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+@@ -193,8 +191,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
  		c.ExtraConfig.CRDRESTOptionsGetter,
  		c.GenericConfig.AdmissionControl,
  		establishingController,
@@ -1956,7 +1956,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customreso
 +	converterFactory conversion.Factory
  
  	// so that we can do create on update.
- 	authorizer authorizer.Authorizer
+ 	authorizer authorizer.UnconditionalAuthorizer
 @@ -174,14 +172,18 @@ func NewCustomResourceDefinitionHandler(
  	restOptionsGetter generic.RESTOptionsGetter,
  	admission admission.Interface,
@@ -1965,7 +1965,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customreso
 -	authResolverWrapper webhook.AuthenticationInfoResolverWrapper,
 +	converterFactory conversion.Factory,
  	masterCount int,
- 	authorizer authorizer.Authorizer,
+ 	authorizer authorizer.UnconditionalAuthorizer,
  	requestTimeout time.Duration,
  	minRequestTimeout time.Duration,
  	staticOpenAPISpec map[string]*spec.Schema,

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-log() { echo ">>> $@"; }
+set -euo pipefail
+
+log() { echo ">>> $*"; }
 die() { log "$@"; exit 1; }
 cd "$(dirname $0)/.."
 source ".env"
@@ -14,8 +16,8 @@ source "./hack/lib/init.sh"
 export GOWORK=
 
 set_replace() {
-    local package="$1"
-    local target_path="$2"
+    local package="${1:-}"
+    local target_path="${2:-}"
     if [[ -z "$package" ]] || [[ -z "$target_path" ]]; then
         die "set_replace <package> <target_path"
     fi
@@ -35,10 +37,7 @@ set_replace_all() {
 }
 
 # logicalclusters doesn't need a local replace
-(
-    cd kubernetes
-    ./hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 latest
-)
+./hack/pin-dependency.sh github.com/kcp-dev/logicalcluster/v3 latest
 
 set_replace_all \
     github.com/kcp-dev/apimachinery/v2 \

@@ -5,15 +5,15 @@ Subject: [PATCH] UPSTREAM: <carry>: apiserver cleaning
 
 ---
  pkg/kubeapiserver/options/authentication.go                 | 2 +-
- .../pkg/apiserver/rest_options_getter_kcp.go                | 5 +++--
+ .../pkg/apiserver/rest_options_getter_kcp.go                | 4 ++--
  staging/src/k8s.io/apiserver/pkg/server/options/feature.go  | 6 +++---
- 3 files changed, 7 insertions(+), 6 deletions(-)
+ 3 files changed, 6 insertions(+), 6 deletions(-)
 
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
-@@ -717,7 +717,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
- 			versionedInformer.Core().V1().ServiceAccounts().Lister(),
+@@ -716,7 +716,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+ 			versionedInformer.Admissionregistration().V1().MutatingWebhookConfigurations().Lister(),
  		)
  	}
 -	authenticatorConfig.SecretsWriter = extclient.CoreV1()
@@ -24,20 +24,12 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
-@@ -8,6 +8,7 @@ import (
- 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
- 
- 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-+	"k8s.io/apimachinery/pkg/runtime"
- 	"k8s.io/apimachinery/pkg/runtime/schema"
- 	"k8s.io/apiserver/pkg/registry/generic"
- 	"k8s.io/apiserver/pkg/storage/storagebackend"
-@@ -18,8 +19,8 @@ type apiBindingAwareCRDRESTOptionsGetter struct {
+@@ -19,8 +19,8 @@ type apiBindingAwareCRDRESTOptionsGetter struct {
  	crd      *apiextensionsv1.CustomResourceDefinition
  }
  
--func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource) (generic.RESTOptions, error) {
--	ret, err := t.delegate.GetRESTOptions(resource)
+-func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource, example runtime.Object) (generic.RESTOptions, error) {
+-	ret, err := t.delegate.GetRESTOptions(resource, example)
 +func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource, obj runtime.Object) (generic.RESTOptions, error) {
 +	ret, err := t.delegate.GetRESTOptions(resource, obj)
  	if err != nil {

@@ -13,8 +13,8 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
 --- a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
 +++ b/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util.go
-@@ -52,6 +52,8 @@ const (
- 	NodeUIDKey = "authentication.kubernetes.io/node-uid"
+@@ -75,6 +75,8 @@ const (
+ 	AttestationAdmissionReviewAPIGroupsKey = AttestationKeyPrefix + authenticationv1.AttestationAdmissionReviewAPIGroups
  	// ClusterNameKey is the logical cluster name this service-account comes from.
  	ClusterNameKey = "authentication.kcp.io/cluster-name"
 +	// ClusterScopeKey additionally sets the scope for the service-account to the cluster it belongs to.
@@ -22,7 +22,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/authentication/serviceaccount/util
  )
  
  // MakeUsername generates a username from the given namespace and ServiceAccount name.
-@@ -170,6 +172,7 @@ func (sa *ServiceAccountInfo) UserInfo() user.Info {
+@@ -218,6 +220,7 @@ func (sa *ServiceAccountInfo) UserInfo() user.Info {
  		info.Extra = map[string][]string{}
  	}
  	info.Extra[ClusterNameKey] = []string{sa.ClusterName.String()}

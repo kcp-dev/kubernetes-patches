@@ -3,6 +3,7 @@ From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Fri, 1 Sep 2023 12:14:15 +0200
 Subject: [PATCH] UPSTREAM: <carry>: clusterize controllers
 
+Co-authored-by: Simon Bein <simontheleg@gmail.com>
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
@@ -18,14 +19,15 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  .../resource_quota_controller.go              |  16 +-
  .../resourcequota/resource_quota_monitor.go   |   2 +
  .../serviceaccounts_controller.go             |  42 ++--
- pkg/controller/serviceaccount/tokengetter.go  |  41 +++-
+ pkg/controller/serviceaccount/tokengetter.go  |  68 +++++-
  .../serviceaccount/tokens_controller.go       | 213 +++++++++++++++---
- pkg/kubeapiserver/options/authentication.go   |   9 -
+ pkg/kubeapiserver/options/authentication.go   |  10 -
  pkg/serviceaccount/jwt.go                     |   7 +
+ pkg/serviceaccount/jwt_test.go                |   6 -
  test/e2e/apimachinery/discovery.go            |   3 +-
  .../e2e_node/services/namespace_controller.go |   6 +-
  .../namespace/ns_conditions_test.go           |  17 +-
- 16 files changed, 498 insertions(+), 170 deletions(-)
+ 17 files changed, 525 insertions(+), 177 deletions(-)
 
 diff --git a/cmd/kube-controller-manager/app/core.go b/cmd/kube-controller-manager/app/core.go
 --- a/cmd/kube-controller-manager/app/core.go
@@ -39,7 +41,7 @@ diff --git a/cmd/kube-controller-manager/app/core.go b/cmd/kube-controller-manag
  	genericfeatures "k8s.io/apiserver/pkg/features"
  	"k8s.io/apiserver/pkg/quota/v1/generic"
  	"k8s.io/client-go/discovery"
-@@ -590,7 +592,9 @@ func newModifiedNamespaceController(
+@@ -550,7 +552,9 @@ func newModifiedNamespaceController(
  		return nil, err
  	}
  
@@ -354,13 +356,12 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	"k8s.io/klog/v2"
  
  	v1 "k8s.io/api/core/v1"
-@@ -34,32 +37,27 @@ import (
+@@ -33,31 +36,26 @@ import (
+ 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
  	"k8s.io/apimachinery/pkg/util/sets"
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
  	"k8s.io/client-go/discovery"
 -	v1clientset "k8s.io/client-go/kubernetes/typed/core/v1"
 -	"k8s.io/client-go/metadata"
- 	"k8s.io/kubernetes/pkg/features"
  )
  
  // NamespacedResourcesDeleterInterface is the interface to delete a namespace with all resources in it.
@@ -395,7 +396,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	return d
  }
  
-@@ -68,14 +66,16 @@ var _ NamespacedResourcesDeleterInterface = &namespacedResourcesDeleter{}
+@@ -66,14 +64,16 @@ var _ NamespacedResourcesDeleterInterface = &namespacedResourcesDeleter{}
  // namespacedResourcesDeleter is used to delete all resources in a given namespace.
  type namespacedResourcesDeleter struct {
  	// Client to manipulate the namespace.
@@ -417,7 +418,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	// The finalizer token that should be removed from the namespace
  	// when all resources in that namespace have been deleted.
  	finalizerToken v1.FinalizerName
-@@ -95,11 +95,11 @@ type namespacedResourcesDeleter struct {
+@@ -93,11 +93,11 @@ type namespacedResourcesDeleter struct {
  // Returns ResourcesRemainingError if it deleted some resources but needs
  // to wait for them to go away.
  // Caller is expected to keep calling this until it succeeds.
@@ -431,7 +432,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		if errors.IsNotFound(err) {
  			return nil
-@@ -155,11 +155,11 @@ func (d *namespacedResourcesDeleter) Delete(ctx context.Context, nsName string)
+@@ -153,11 +153,11 @@ func (d *namespacedResourcesDeleter) Delete(ctx context.Context, nsName string)
  	return nil
  }
  
@@ -445,7 +446,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		utilruntime.HandleErrorWithContext(ctx, err, "Unable to get all supported resources from server")
  	}
-@@ -186,7 +186,7 @@ func (d *namespacedResourcesDeleter) initOpCache(ctx context.Context) {
+@@ -184,7 +184,7 @@ func (d *namespacedResourcesDeleter) initOpCache(ctx context.Context) {
  
  			for _, op := range []operation{operationList, operationDeleteCollection} {
  				if !verbs.Has(string(op)) {
@@ -454,7 +455,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  				}
  			}
  		}
-@@ -238,6 +238,39 @@ func (o *operationNotSupportedCache) setNotSupported(key operationKey) {
+@@ -236,6 +236,39 @@ func (o *operationNotSupportedCache) setNotSupported(key operationKey) {
  	o.m[key] = true
  }
  
@@ -494,7 +495,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  // updateNamespaceFunc is a function that makes an update to a namespace
  type updateNamespaceFunc func(ctx context.Context, namespace *v1.Namespace) (*v1.Namespace, error)
  
-@@ -255,7 +288,7 @@ func (d *namespacedResourcesDeleter) retryOnConflictError(ctx context.Context, n
+@@ -253,7 +286,7 @@ func (d *namespacedResourcesDeleter) retryOnConflictError(ctx context.Context, n
  			return nil, err
  		}
  		prevNamespace := latestNamespace
@@ -503,7 +504,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  		if err != nil {
  			return nil, err
  		}
-@@ -272,7 +305,7 @@ func (d *namespacedResourcesDeleter) updateNamespaceStatusFunc(ctx context.Conte
+@@ -270,7 +303,7 @@ func (d *namespacedResourcesDeleter) updateNamespaceStatusFunc(ctx context.Conte
  	}
  	newNamespace := namespace.DeepCopy()
  	newNamespace.Status.Phase = v1.NamespaceTerminating
@@ -512,7 +513,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  }
  
  // finalized returns true if the namespace.Spec.Finalizers is an empty list
-@@ -295,7 +328,7 @@ func (d *namespacedResourcesDeleter) finalizeNamespace(ctx context.Context, name
+@@ -293,7 +326,7 @@ func (d *namespacedResourcesDeleter) finalizeNamespace(ctx context.Context, name
  	for _, value := range finalizerSet.List() {
  		namespaceFinalize.Spec.Finalizers = append(namespaceFinalize.Spec.Finalizers, v1.FinalizerName(value))
  	}
@@ -521,7 +522,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		// it was removed already, so life is good
  		if errors.IsNotFound(err) {
-@@ -308,13 +341,15 @@ func (d *namespacedResourcesDeleter) finalizeNamespace(ctx context.Context, name
+@@ -306,13 +339,15 @@ func (d *namespacedResourcesDeleter) finalizeNamespace(ctx context.Context, name
  // deleteCollection is a helper function that will delete the collection of resources
  // it returns true if the operation was supported on the server.
  // it returns an error if the operation was supported on the server but was unable to complete.
@@ -540,7 +541,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  		return false, nil
  	}
  
-@@ -323,7 +358,8 @@ func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr s
+@@ -321,7 +356,8 @@ func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr s
  	// namespace itself.
  	background := metav1.DeletePropagationBackground
  	opts := metav1.DeleteOptions{PropagationPolicy: &background}
@@ -550,7 +551,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err == nil {
  		return true, nil
  	}
-@@ -348,17 +384,20 @@ func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr s
+@@ -346,17 +382,20 @@ func (d *namespacedResourcesDeleter) deleteCollection(ctx context.Context, gvr s
  //	the list of items in the collection (if found)
  //	a boolean if the operation is supported
  //	an error if the operation is supported but could not be completed.
@@ -574,7 +575,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err == nil {
  		return partialList, true, nil
  	}
-@@ -377,10 +416,10 @@ func (d *namespacedResourcesDeleter) listCollection(ctx context.Context, gvr sch
+@@ -375,10 +414,10 @@ func (d *namespacedResourcesDeleter) listCollection(ctx context.Context, gvr sch
  }
  
  // deleteEachItem is a helper function that will list the collection of resources and delete each item 1 by 1.
@@ -587,7 +588,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		return err
  	}
-@@ -390,7 +429,7 @@ func (d *namespacedResourcesDeleter) deleteEachItem(ctx context.Context, gvr sch
+@@ -388,7 +427,7 @@ func (d *namespacedResourcesDeleter) deleteEachItem(ctx context.Context, gvr sch
  	for _, item := range partialList.Items {
  		background := metav1.DeletePropagationBackground
  		opts := metav1.DeleteOptions{PropagationPolicy: &background}
@@ -596,7 +597,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  			return err
  		}
  	}
-@@ -412,13 +451,14 @@ type gvrDeletionMetadata struct {
+@@ -410,13 +449,14 @@ type gvrDeletionMetadata struct {
  // If estimate > 0, not all resources are guaranteed to be gone.
  func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
  	ctx context.Context,
@@ -612,7 +613,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - unable to estimate", "namespace", namespace, "resource", gvr, "err", err)
  		return gvrDeletionMetadata{}, err
-@@ -426,14 +466,14 @@ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
+@@ -424,14 +464,14 @@ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
  	logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - estimate", "namespace", namespace, "resource", gvr, "estimate", estimate)
  
  	// first try to delete the entire collection
@@ -629,7 +630,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  		if err != nil {
  			return gvrDeletionMetadata{finalizerEstimateSeconds: estimate}, err
  		}
-@@ -442,7 +482,7 @@ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
+@@ -440,7 +480,7 @@ func (d *namespacedResourcesDeleter) deleteAllContentForGroupVersionResource(
  	// verify there are no more remaining items
  	// it is not an error condition for there to be remaining items if local estimate is non-zero
  	logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - checking for no more items in namespace", "namespace", namespace, "resource", gvr)
@@ -638,7 +639,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		logger.V(5).Info("Namespace controller - deleteAllContentForGroupVersionResource - error verifying no items in namespace", "namespace", namespace, "resource", gvr, "err", err)
  		return gvrDeletionMetadata{finalizerEstimateSeconds: estimate}, err
-@@ -509,7 +549,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+@@ -507,7 +547,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
  	logger := klog.FromContext(ctx)
  	logger.V(4).Info("namespace controller - deleteAllContent", "namespace", namespace)
  
@@ -647,16 +648,16 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	if err != nil {
  		// discovery errors are not fatal.  We often have some set of resources we can operate against even if we don't have a complete list
  		errs = append(errs, err)
-@@ -532,7 +572,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+@@ -530,7 +570,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
  
- 	if _, hasPods := groupVersionResources[podsGVR]; hasPods && utilfeature.DefaultFeatureGate.Enabled(features.OrderedNamespaceDeletion) {
+ 	if _, hasPods := groupVersionResources[podsGVR]; hasPods {
  		// Ensure all pods in the namespace are deleted first
 -		gvrDeletionMetadata, err := d.deleteAllContentForGroupVersionResource(ctx, podsGVR, namespace, namespaceDeletedAt)
 +		gvrDeletionMetadata, err := d.deleteAllContentForGroupVersionResource(ctx, logicalcluster.From(ns), podsGVR, namespace, namespaceDeletedAt)
  		if err != nil {
  			errs = append(errs, fmt.Errorf("failed to delete pods for namespace: %s, err: %w", namespace, err))
  			conditionUpdater.ProcessDeleteContentErr(err)
-@@ -554,7 +594,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+@@ -552,7 +592,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
  		if numRemainingTotals.gvrToNumRemaining[podsGVR] > 0 {
  			logger.V(5).Info("Namespace controller - pods still remain, delaying deletion of other resources", "namespace", namespace)
  			if hasChanged := conditionUpdater.Update(ns); hasChanged {
@@ -665,7 +666,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  					utilruntime.HandleErrorWithContext(ctx, err, "Couldn't update status condition for namespace", "namespace", namespace)
  				}
  			}
-@@ -568,7 +608,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+@@ -566,7 +606,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
  			gvr.Version == podsGVR.Version && gvr.Resource == podsGVR.Resource {
  			continue
  		}
@@ -674,7 +675,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  		if err != nil {
  			// If there is an error, hold on to it but proceed with all the remaining
  			// groupVersionResources.
-@@ -594,7 +634,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+@@ -592,7 +632,7 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
  	// we need to reflect that information.  Recall that additional finalizers can be set on namespaces, so this finalizer may clear itself and
  	// NOT remove the resource instance.
  	if hasChanged := conditionUpdater.Update(ns); hasChanged {
@@ -683,7 +684,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  			utilruntime.HandleErrorWithContext(ctx, err, "Couldn't update status condition for namespace", "namespace", namespace)
  		}
  	}
-@@ -606,14 +646,14 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
+@@ -604,14 +644,14 @@ func (d *namespacedResourcesDeleter) deleteAllContent(ctx context.Context, ns *v
  }
  
  // estimateGracefulTermination will estimate the graceful termination required for the specific entity in the namespace
@@ -700,7 +701,7 @@ diff --git a/pkg/controller/namespace/deletion/namespaced_resources_deleter.go b
  	}
  	if err != nil {
  		return 0, err
-@@ -628,14 +668,14 @@ func (d *namespacedResourcesDeleter) estimateGracefulTermination(ctx context.Con
+@@ -626,14 +666,14 @@ func (d *namespacedResourcesDeleter) estimateGracefulTermination(ctx context.Con
  }
  
  // estimateGracefulTerminationForPods determines the graceful termination period for pods in the namespace
@@ -1056,7 +1057,7 @@ diff --git a/pkg/controller/serviceaccount/serviceaccounts_controller.go b/pkg/c
 diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/serviceaccount/tokengetter.go
 --- a/pkg/controller/serviceaccount/tokengetter.go
 +++ b/pkg/controller/serviceaccount/tokengetter.go
-@@ -14,11 +14,17 @@ See the License for the specific language governing permissions and
+@@ -14,11 +14,18 @@ See the License for the specific language governing permissions and
  limitations under the License.
  */
  
@@ -1068,58 +1069,77 @@ diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/servi
  	"context"
  
 +	kcpkubernetesclientset "github.com/kcp-dev/client-go/kubernetes"
++	kcpadmissionregistrationv1listers "github.com/kcp-dev/client-go/listers/admissionregistration/v1"
 +	kcpcorev1listers "github.com/kcp-dev/client-go/listers/core/v1"
 +	"github.com/kcp-dev/logicalcluster/v3"
 +
+ 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
  	v1 "k8s.io/api/core/v1"
  	apierrors "k8s.io/apimachinery/pkg/api/errors"
- 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-@@ -27,6 +33,29 @@ import (
+@@ -29,6 +36,43 @@ import (
  	"k8s.io/kubernetes/pkg/serviceaccount"
  )
  
-+func NewClusterGetterFromClient(client kcpkubernetesclientset.ClusterInterface, secretLister kcpcorev1listers.SecretClusterLister, serviceAccountLister kcpcorev1listers.ServiceAccountClusterLister /*podLister kcpcorev1listers.PodClusterLister*/) serviceaccount.ServiceAccountTokenClusterGetter {
++func NewClusterGetterFromClient(client kcpkubernetesclientset.ClusterInterface, secretLister kcpcorev1listers.SecretClusterLister, serviceAccountLister kcpcorev1listers.ServiceAccountClusterLister /*podLister kcpcorev1listers.PodClusterLister*/, validatingWebhookConfigurationLister kcpadmissionregistrationv1listers.ValidatingWebhookConfigurationClusterLister, mutatingWebhookConfigurationLister kcpadmissionregistrationv1listers.MutatingWebhookConfigurationClusterLister) serviceaccount.ServiceAccountTokenClusterGetter {
 +	return &serviceAccountTokenClusterGetter{
-+		client:               client,
-+		secretLister:         secretLister,
-+		serviceAccountLister: serviceAccountLister,
++		client:                               client,
++		secretLister:                         secretLister,
++		serviceAccountLister:                 serviceAccountLister,
++		validatingWebhookConfigurationLister: validatingWebhookConfigurationLister,
++		mutatingWebhookConfigurationLister:   mutatingWebhookConfigurationLister,
 +	}
 +}
 +
 +type serviceAccountTokenClusterGetter struct {
-+	client               kcpkubernetesclientset.ClusterInterface
-+	secretLister         kcpcorev1listers.SecretClusterLister
-+	serviceAccountLister kcpcorev1listers.ServiceAccountClusterLister
-+	podLister            kcpcorev1listers.PodClusterLister
++	client                               kcpkubernetesclientset.ClusterInterface
++	secretLister                         kcpcorev1listers.SecretClusterLister
++	serviceAccountLister                 kcpcorev1listers.ServiceAccountClusterLister
++	podLister                            kcpcorev1listers.PodClusterLister
++	validatingWebhookConfigurationLister kcpadmissionregistrationv1listers.ValidatingWebhookConfigurationClusterLister
++	mutatingWebhookConfigurationLister   kcpadmissionregistrationv1listers.MutatingWebhookConfigurationClusterLister
 +}
 +
 +func (s *serviceAccountTokenClusterGetter) Cluster(name logicalcluster.Name) serviceaccount.ServiceAccountTokenGetter {
++	var validatingWebhookConfigurationLister admissionregistrationv1listers.ValidatingWebhookConfigurationLister
++	if s.validatingWebhookConfigurationLister != nil {
++		validatingWebhookConfigurationLister = s.validatingWebhookConfigurationLister.Cluster(name)
++	}
++	var mutatingWebhookConfigurationLister admissionregistrationv1listers.MutatingWebhookConfigurationLister
++	if s.mutatingWebhookConfigurationLister != nil {
++		mutatingWebhookConfigurationLister = s.mutatingWebhookConfigurationLister.Cluster(name)
++	}
 +	return NewGetterFromClient(
 +		s.client.Cluster(name.Path()),
 +		s.secretLister.Cluster(name),
 +		s.serviceAccountLister.Cluster(name),
++		validatingWebhookConfigurationLister,
++		mutatingWebhookConfigurationLister,
 +	)
 +}
 +
  // clientGetter implements ServiceAccountTokenGetter using a clientset.Interface
  type clientGetter struct {
- 	client               clientset.Interface
-@@ -40,8 +69,12 @@ type clientGetter struct {
+ 	client                               clientset.Interface
+@@ -44,8 +88,16 @@ type clientGetter struct {
  // uses the specified client to retrieve service accounts, pods, secrets and nodes.
  // The client should NOT authenticate using a service account token
  // the returned getter will be used to retrieve, or recursion will result.
--func NewGetterFromClient(c clientset.Interface, secretLister v1listers.SecretLister, serviceAccountLister v1listers.ServiceAccountLister, podLister v1listers.PodLister, nodeLister v1listers.NodeLister) serviceaccount.ServiceAccountTokenGetter {
--	return clientGetter{c, secretLister, serviceAccountLister, podLister, nodeLister}
-+func NewGetterFromClient(c clientset.Interface, secretLister v1listers.SecretLister, serviceAccountLister v1listers.ServiceAccountLister) serviceaccount.ServiceAccountTokenGetter {
+-func NewGetterFromClient(c clientset.Interface, secretLister v1listers.SecretLister, serviceAccountLister v1listers.ServiceAccountLister, podLister v1listers.PodLister, nodeLister v1listers.NodeLister, validatingWebhookConfigurationLister admissionregistrationv1listers.ValidatingWebhookConfigurationLister, mutatingWebhookConfigurationLister admissionregistrationv1listers.MutatingWebhookConfigurationLister) serviceaccount.ServiceAccountTokenGetter {
+-	return clientGetter{c, secretLister, serviceAccountLister, podLister, nodeLister, validatingWebhookConfigurationLister, mutatingWebhookConfigurationLister}
++// The webhook configuration listers may be nil, in which case the respective
++// getters fail closed with NotFound.
++func NewGetterFromClient(c clientset.Interface, secretLister v1listers.SecretLister, serviceAccountLister v1listers.ServiceAccountLister, validatingWebhookConfigurationLister admissionregistrationv1listers.ValidatingWebhookConfigurationLister, mutatingWebhookConfigurationLister admissionregistrationv1listers.MutatingWebhookConfigurationLister) serviceaccount.ServiceAccountTokenGetter {
 +	return clientGetter{
-+		client:               c,
-+		secretLister:         secretLister,
-+		serviceAccountLister: serviceAccountLister,
++		client:                               c,
++		secretLister:                         secretLister,
++		serviceAccountLister:                 serviceAccountLister,
++		validatingWebhookConfigurationLister: validatingWebhookConfigurationLister,
++		mutatingWebhookConfigurationLister:   mutatingWebhookConfigurationLister,
 +	}
  }
  
  func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error) {
-@@ -52,8 +85,8 @@ func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name str
+@@ -56,8 +108,8 @@ func (c clientGetter) GetServiceAccount(ctx context.Context, namespace, name str
  }
  
  func (c clientGetter) GetPod(ctx context.Context, namespace, name string) (*v1.Pod, error) {
@@ -1130,6 +1150,28 @@ diff --git a/pkg/controller/serviceaccount/tokengetter.go b/pkg/controller/servi
  	}
  	return c.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
  }
+@@ -81,6 +133,10 @@ func (c clientGetter) GetNode(ctx context.Context, name string) (*v1.Node, error
+ }
+ 
+ func (c clientGetter) GetValidatingWebhookConfiguration(ctx context.Context, name string) (*admissionregistrationv1.ValidatingWebhookConfiguration, error) {
++	// handle the case where no lister is plumbed, e.g. for kcp cluster getters
++	if c.validatingWebhookConfigurationLister == nil {
++		return nil, apierrors.NewNotFound(admissionregistrationv1.Resource("validatingwebhookconfigurations"), name)
++	}
+ 	if validatingWebhookCfg, err := c.validatingWebhookConfigurationLister.Get(name); err == nil {
+ 		return validatingWebhookCfg, nil
+ 	}
+@@ -88,6 +144,10 @@ func (c clientGetter) GetValidatingWebhookConfiguration(ctx context.Context, nam
+ }
+ 
+ func (c clientGetter) GetMutatingWebhookConfiguration(ctx context.Context, name string) (*admissionregistrationv1.MutatingWebhookConfiguration, error) {
++	// handle the case where no lister is plumbed, e.g. for kcp cluster getters
++	if c.mutatingWebhookConfigurationLister == nil {
++		return nil, apierrors.NewNotFound(admissionregistrationv1.Resource("mutatingwebhookconfigurations"), name)
++	}
+ 	if mutatingWebhookCfg, err := c.mutatingWebhookConfigurationLister.Get(name); err == nil {
+ 		return mutatingWebhookCfg, nil
+ 	}
 diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller/serviceaccount/tokens_controller.go
 --- a/pkg/controller/serviceaccount/tokens_controller.go
 +++ b/pkg/controller/serviceaccount/tokens_controller.go
@@ -1540,7 +1582,12 @@ diff --git a/pkg/controller/serviceaccount/tokens_controller.go b/pkg/controller
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
-@@ -51,14 +51,12 @@ import (
+@@ -45,19 +45,16 @@ import (
+ 	"k8s.io/apiserver/pkg/server/egressselector"
+ 	genericoptions "k8s.io/apiserver/pkg/server/options"
+ 	authenticationconfigmetrics "k8s.io/apiserver/pkg/server/options/authenticationconfig/metrics"
+-	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/apiserver/pkg/util/filesystem"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/client-go/informers"
  	"k8s.io/client-go/kubernetes"
@@ -1555,7 +1602,7 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	kubeauthenticator "k8s.io/kubernetes/pkg/kubeapiserver/authenticator"
  	authzmodes "k8s.io/kubernetes/pkg/kubeapiserver/authorizer/modes"
  	"k8s.io/kubernetes/pkg/serviceaccount"
-@@ -713,17 +711,10 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+@@ -711,17 +708,10 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
  	if o.ServiceAccounts != nil && o.ServiceAccounts.OptionalTokenGetter != nil {
  		authenticatorConfig.ServiceAccountTokenGetter = o.ServiceAccounts.OptionalTokenGetter(versionedInformer)
  	} else {
@@ -1570,9 +1617,9 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  			versionedInformer.Core().V1().ServiceAccounts().Lister(),
 -			versionedInformer.Core().V1().Pods().Lister(),
 -			nodeLister,
+ 			versionedInformer.Admissionregistration().V1().ValidatingWebhookConfigurations().Lister(),
+ 			versionedInformer.Admissionregistration().V1().MutatingWebhookConfigurations().Lister(),
  		)
- 	}
- 	authenticatorConfig.SecretsWriter = extclient.CoreV1()
 diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
 --- a/pkg/serviceaccount/jwt.go
 +++ b/pkg/serviceaccount/jwt.go
@@ -1582,10 +1629,10 @@ diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
  
 +	"github.com/kcp-dev/logicalcluster/v3"
 +
+ 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
  	v1 "k8s.io/api/core/v1"
  	utilerrors "k8s.io/apimachinery/pkg/util/errors"
- 	"k8s.io/apiserver/pkg/audit"
-@@ -38,6 +40,11 @@ import (
+@@ -39,6 +41,11 @@ import (
  	apiserverserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
  )
  
@@ -1597,6 +1644,22 @@ diff --git a/pkg/serviceaccount/jwt.go b/pkg/serviceaccount/jwt.go
  // ServiceAccountTokenGetter defines functions to retrieve a named service account and secret
  type ServiceAccountTokenGetter interface {
  	GetServiceAccount(ctx context.Context, namespace, name string) (*v1.ServiceAccount, error)
+diff --git a/pkg/serviceaccount/jwt_test.go b/pkg/serviceaccount/jwt_test.go
+--- a/pkg/serviceaccount/jwt_test.go
++++ b/pkg/serviceaccount/jwt_test.go
+@@ -375,12 +375,6 @@ func TestTokenGenerateAndValidate(t *testing.T) {
+ 			v1listers.NewServiceAccountLister(newIndexer(func(namespace, name string) (interface{}, error) {
+ 				return tc.Client.CoreV1().ServiceAccounts(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+ 			})),
+-			v1listers.NewPodLister(newIndexer(func(namespace, name string) (interface{}, error) {
+-				return tc.Client.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+-			})),
+-			v1listers.NewNodeLister(newIndexer(func(_, name string) (interface{}, error) {
+-				return tc.Client.CoreV1().Nodes().Get(context.TODO(), name, metav1.GetOptions{})
+-			})),
+ 			admissionregistrationv1listers.NewValidatingWebhookConfigurationLister(newIndexer(func(_, name string) (interface{}, error) {
+ 				return tc.Client.AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(context.TODO(), name, metav1.GetOptions{})
+ 			})),
 diff --git a/test/e2e/apimachinery/discovery.go b/test/e2e/apimachinery/discovery.go
 --- a/test/e2e/apimachinery/discovery.go
 +++ b/test/e2e/apimachinery/discovery.go
@@ -1663,7 +1726,7 @@ diff --git a/test/integration/namespace/ns_conditions_test.go b/test/integration
  	restclient "k8s.io/client-go/rest"
  	"k8s.io/klog/v2/ktesting"
  	kubeapiservertesting "k8s.io/kubernetes/cmd/kube-apiserver/app/testing"
-@@ -181,26 +184,28 @@ func namespaceLifecycleSetup(t *testing.T) (context.Context, kubeapiservertestin
+@@ -254,26 +257,28 @@ func namespaceLifecycleSetup(t *testing.T) (context.Context, kubeapiservertestin
  	config := restclient.CopyConfig(server.ClientConfig)
  	config.QPS = 10000
  	config.Burst = 10000

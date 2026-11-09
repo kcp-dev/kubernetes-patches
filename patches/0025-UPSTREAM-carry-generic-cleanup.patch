@@ -3,29 +3,29 @@ From: Mangirdas Judeikis <mangirdas@judeikis.lt>
 Date: Tue, 3 Sep 2024 15:32:27 +0300
 Subject: [PATCH] UPSTREAM: <carry>: generic cleanup
 
+Co-authored-by: Simon Bein <simontheleg@gmail.com>
 ---
- pkg/controlplane/apiserver/config.go          | 29 +--------
+ pkg/controlplane/apiserver/config.go          | 31 +++-------
  .../samples/generic/server/server.go          |  2 +-
  .../generic/server/serviceaccounts_kcp.go     | 60 +++++++++++++++++++
  pkg/kubeapiserver/options/authentication.go   |  3 +-
- .../apiextensions/validation/validation.go    |  8 +--
  .../apiserver/pkg/server/genericapiserver.go  |  2 +-
  .../apiserver/pkg/server/options/feature.go   |  6 +-
- 7 files changed, 73 insertions(+), 37 deletions(-)
+ 6 files changed, 74 insertions(+), 30 deletions(-)
  create mode 100644 pkg/controlplane/apiserver/samples/generic/server/serviceaccounts_kcp.go
 
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
-@@ -29,7 +29,6 @@ import (
- 	"github.com/kcp-dev/logicalcluster/v3"
+@@ -31,7 +31,6 @@ import (
+ 
  	noopoteltrace "go.opentelemetry.io/otel/trace/noop"
  
 -	"k8s.io/apimachinery/pkg/api/meta"
  	"k8s.io/apimachinery/pkg/runtime"
- 	utilnet "k8s.io/apimachinery/pkg/util/net"
- 	"k8s.io/apimachinery/pkg/util/sets"
-@@ -156,20 +155,14 @@ func BuildGenericConfig(
+ 	"k8s.io/apimachinery/pkg/runtime/serializer"
+ 	"k8s.io/apimachinery/pkg/runtime/serializer/cbor"
+@@ -171,7 +170,7 @@ func BuildGenericConfig(
  	genericConfig.LoopbackClientConfig.DisableCompression = true
  
  	kubeClientConfig := genericConfig.LoopbackClientConfig
@@ -34,22 +34,29 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  	if err != nil {
  		lastErr = fmt.Errorf("failed to create real external clientset: %w", err)
  		return
+@@ -182,14 +181,16 @@ func BuildGenericConfig(
+ 		}
+ 		return obj, nil
  	}
--	trim := func(obj interface{}) (interface{}, error) {
--		if accessor, err := meta.Accessor(obj); err == nil && accessor.GetManagedFields() != nil {
--			accessor.SetManagedFields(nil)
--		}
--		return obj, nil
--	}
--	versionedInformers = clientgoinformers.NewSharedInformerFactoryWithOptions(clientgoExternalClient, 10*time.Minute, clientgoinformers.WithTransform(trim))
-+	versionedInformers = kcpinformers.NewSharedInformerFactory(clusterClient, 10*time.Minute)
+-	versionedInformers = clientgoinformers.NewSharedInformerFactoryWithOptions(
+-		clientgoExternalClient,
++	versionedInformers = kcpinformers.NewSharedInformerFactoryWithOptions(
++		clusterClient,
+ 		10*time.Minute,
+-		clientgoinformers.WithTransform(trim),
+-		clientgoinformers.WithInformerName(informerName),
++		kcpinformers.WithTransform(trim),
++		// Upstream additionally sets WithInformerName(informerName) for informer
++		// identity metrics; the kcp cluster informer factory does not support
++		// informer names (yet), so the identifier is unused here.
+ 	)
  
 -	if lastErr = s.Features.ApplyTo(genericConfig, clientgoExternalClient, versionedInformers); lastErr != nil {
 +	if lastErr = s.Features.ApplyTo(genericConfig, clusterClient, versionedInformers); lastErr != nil {
  		return
  	}
  	if lastErr = s.APIEnablement.ApplyTo(genericConfig, resourceConfig, legacyscheme.Scheme); lastErr != nil {
-@@ -221,22 +214,6 @@ func BuildGenericConfig(
+@@ -235,22 +236,6 @@ func BuildGenericConfig(
  
  	ctx := wait.ContextForChannel(genericConfig.DrainedNotify())
  
@@ -152,15 +159,15 @@ new file mode 100644
 diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/options/authentication.go
 --- a/pkg/kubeapiserver/options/authentication.go
 +++ b/pkg/kubeapiserver/options/authentication.go
-@@ -51,7 +51,6 @@ import (
- 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+@@ -49,7 +49,6 @@ import (
+ 	authenticationconfigmetrics "k8s.io/apiserver/pkg/server/options/authenticationconfig/metrics"
  	"k8s.io/apiserver/pkg/util/filesystem"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
 -	"k8s.io/client-go/informers"
  	certutil "k8s.io/client-go/util/cert"
  	"k8s.io/client-go/util/keyutil"
  	cliflag "k8s.io/component-base/cli/flag"
-@@ -138,7 +137,7 @@ type ServiceAccountAuthenticationOptions struct {
+@@ -136,7 +135,7 @@ type ServiceAccountAuthenticationOptions struct {
  	MaxExtendedExpiration time.Duration
  	// OptionalTokenGetter is a function that returns a service account token getter.
  	// If not set, the default token getter will be used.
@@ -169,45 +176,6 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	// ExternalPublicKeysGetter gets set if `--service-account-signing-endpoint` is passed.
  	// ExternalPublicKeysGetter is mutually exclusive with KeyFiles.
  	ExternalPublicKeysGetter serviceaccount.PublicKeysGetter
-diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
---- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
-+++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
-@@ -627,7 +627,7 @@ func hasValidConversionReviewVersionOrEmpty(versions []string) bool {
- 	return false
- }
- 
--func validateCustomResourceConversion(conversion *apiextensions.CustomResourceConversion, requireRecognizedVersion bool, fldPath *field.Path, opts validationOptions) field.ErrorList {
-+func validateCustomResourceConversion(conversion *apiextensions.CustomResourceConversion, requireRecognizedVersion bool, fldPath *field.Path, opts ValidationOptions) field.ErrorList {
- 	allErrs := field.ErrorList{}
- 	if conversion == nil {
- 		return allErrs
-@@ -646,7 +646,7 @@ func validateCustomResourceConversion(conversion *apiextensions.CustomResourceCo
- 			case cc.Service != nil:
- 				allErrs = append(allErrs, webhook.ValidateWebhookService(fldPath.Child("webhookClientConfig").Child("service"), cc.Service.Name, cc.Service.Namespace, cc.Service.Path, cc.Service.Port)...)
- 			}
--			if len(cc.CABundle) > 0 && !opts.allowInvalidCABundle {
-+			if len(cc.CABundle) > 0 && !opts.AllowInvalidCABundle {
- 				allErrs = append(allErrs, webhook.ValidateCABundle(fldPath.Child("webhookClientConfig").Child("caBundle"), cc.CABundle)...)
- 			}
- 		}
-@@ -862,7 +862,7 @@ func ValidateCustomResourceColumnDefinition(col *apiextensions.CustomResourceCol
- 	return allErrs
- }
- 
--func ValidateCustomResourceSelectableFields(selectableFields []apiextensions.SelectableField, schema *structuralschema.Structural, fldPath *field.Path, opts validationOptions, version string) (allErrs field.ErrorList) {
-+func ValidateCustomResourceSelectableFields(selectableFields []apiextensions.SelectableField, schema *structuralschema.Structural, fldPath *field.Path, opts ValidationOptions, version string) (allErrs field.ErrorList) {
- 	uniqueSelectableFields := sets.New[string]()
- 	for i, selectableField := range selectableFields {
- 		indexFldPath := fldPath.Index(i)
-@@ -889,7 +889,7 @@ func ValidateCustomResourceSelectableFields(selectableFields []apiextensions.Sel
- 		}
- 	}
- 	uniqueSelectableFieldCount := uniqueSelectableFields.Len()
--	if uniqueSelectableFieldCount > MaxSelectableFields && !opts.allowTooManySelectableFields[version] {
-+	if uniqueSelectableFieldCount > MaxSelectableFields && !opts.AllowTooManySelectableFields[version] {
- 		allErrs = append(allErrs, field.TooMany(fldPath, uniqueSelectableFieldCount, MaxSelectableFields))
- 	}
- 	return allErrs
 diff --git a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 --- a/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go
 +++ b/staging/src/k8s.io/apiserver/pkg/server/genericapiserver.go

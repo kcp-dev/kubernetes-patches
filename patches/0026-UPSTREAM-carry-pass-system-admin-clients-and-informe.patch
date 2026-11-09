@@ -8,22 +8,32 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
- pkg/controlplane/apiserver/config.go | 8 ++++----
- pkg/controlplane/apiserver/server.go | 5 +++++
- 2 files changed, 9 insertions(+), 4 deletions(-)
+ pkg/controlplane/apiserver/config.go | 11 +++++------
+ pkg/controlplane/apiserver/server.go |  5 +++++
+ 2 files changed, 10 insertions(+), 6 deletions(-)
 
 diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
 --- a/pkg/controlplane/apiserver/config.go
 +++ b/pkg/controlplane/apiserver/config.go
-@@ -51,7 +51,6 @@ import (
- 	"k8s.io/apiserver/pkg/util/openapi"
+@@ -29,8 +29,7 @@ import (
+ 	kcpclient "github.com/kcp-dev/client-go/kubernetes"
+ 	"github.com/kcp-dev/logicalcluster/v3"
+ 
+-	noopoteltrace "go.opentelemetry.io/otel/trace/noop"
+-
++	"k8s.io/apimachinery/pkg/api/meta"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/runtime/serializer"
+ 	"k8s.io/apimachinery/pkg/runtime/serializer/cbor"
+@@ -56,7 +55,6 @@ import (
  	utilpeerproxy "k8s.io/apiserver/pkg/util/peerproxy"
+ 	"k8s.io/apiserver/pkg/util/proxy"
  	clientgoinformers "k8s.io/client-go/informers"
 -	clientgoclientset "k8s.io/client-go/kubernetes"
+ 	"k8s.io/client-go/tools/cache"
  	"k8s.io/client-go/util/keyutil"
  	basecompatibility "k8s.io/component-base/compatibility"
- 	metricsfeatures "k8s.io/component-base/metrics/features"
-@@ -157,12 +156,13 @@ func BuildGenericConfig(
+@@ -172,7 +170,7 @@ func BuildGenericConfig(
  	kubeClientConfig := genericConfig.LoopbackClientConfig
  	clusterClient, err := kcpclient.NewForConfig(kubeClientConfig)
  	if err != nil {
@@ -31,7 +41,10 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
 +		lastErr = fmt.Errorf("failed to create cluster clientset: %v", err)
  		return
  	}
- 	versionedInformers = kcpinformers.NewSharedInformerFactory(clusterClient, 10*time.Minute)
+ 	trim := func(obj interface{}) (interface{}, error) {
+@@ -190,7 +188,8 @@ func BuildGenericConfig(
+ 		// informer names (yet), so the identifier is unused here.
+ 	)
  
 -	if lastErr = s.Features.ApplyTo(genericConfig, clusterClient, versionedInformers); lastErr != nil {
 +	// TODO(embik): this creates flowcontrol for system:admin, but that's probably wrong.
@@ -39,7 +52,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
  		return
  	}
  	if lastErr = s.APIEnablement.ApplyTo(genericConfig, resourceConfig, legacyscheme.Scheme); lastErr != nil {
-@@ -373,7 +373,7 @@ func CreateConfig(
+@@ -398,7 +397,7 @@ func CreateConfig(
  	if err != nil {
  		return nil, nil, fmt.Errorf("failed to create admission plugin initializer: %w", err)
  	}
@@ -51,7 +64,7 @@ diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/c
 diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/server.go
 --- a/pkg/controlplane/apiserver/server.go
 +++ b/pkg/controlplane/apiserver/server.go
-@@ -195,6 +195,10 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -198,6 +198,10 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  			c.Extra.PeerEndpointLeaseReconciler,
  			c.Extra.PeerEndpointReconcileInterval,
  			client.Cluster(LocalAdminCluster.Path()))
@@ -62,7 +75,7 @@ diff --git a/pkg/controlplane/apiserver/server.go b/pkg/controlplane/apiserver/s
  		s.GenericAPIServer.AddPostStartHookOrDie("peer-endpoint-reconciler-controller",
  			func(hookContext genericapiserver.PostStartHookContext) error {
  				peerEndpointCtrl.Start(hookContext.Done())
-@@ -230,6 +234,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
+@@ -233,6 +237,7 @@ func (c completedConfig) New(name string, delegationTarget genericapiserver.Dele
  
  	s.GenericAPIServer.AddPostStartHookOrDie("start-cluster-authentication-info-controller", func(hookContext genericapiserver.PostStartHookContext) error {
  		controller := clusterauthenticationtrust.NewClusterAuthenticationTrustController(s.ClusterAuthenticationInfo, client.Cluster(LocalAdminCluster.Path()))

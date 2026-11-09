@@ -82,7 +82,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/attributes.go b/staging/
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go b/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
 --- a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_webhook_manager.go
-@@ -27,6 +27,7 @@ import (
+@@ -29,6 +29,7 @@ import (
  	"k8s.io/apiserver/pkg/admission/plugin/webhook"
  	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
  	"k8s.io/client-go/informers"
@@ -90,21 +90,21 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/mutating_w
  	admissionregistrationlisters "k8s.io/client-go/listers/admissionregistration/v1"
  	"k8s.io/client-go/tools/cache"
  	"k8s.io/client-go/tools/cache/synctrack"
-@@ -52,6 +53,10 @@ var _ generic.Source = &mutatingWebhookConfigurationManager{}
+@@ -55,6 +56,10 @@ var _ generic.Source = &mutatingWebhookConfigurationManager{}
  
- func NewMutatingWebhookConfigurationManager(f informers.SharedInformerFactory) generic.Source {
+ func NewMutatingWebhookConfigurationManager(f informers.SharedInformerFactory, excludedWebhookResources sets.Set[schema.GroupResource]) generic.Source {
  	informer := f.Admissionregistration().V1().MutatingWebhookConfigurations()
-+	return NewMutatingWebhookConfigurationManagerForInformer(informer)
++	return NewMutatingWebhookConfigurationManagerForInformer(informer, excludedWebhookResources)
 +}
 +
-+func NewMutatingWebhookConfigurationManagerForInformer(informer admissionregistrationinformers.MutatingWebhookConfigurationInformer) generic.Source {
++func NewMutatingWebhookConfigurationManagerForInformer(informer admissionregistrationinformers.MutatingWebhookConfigurationInformer, excludedWebhookResources sets.Set[schema.GroupResource]) generic.Source {
  	manager := &mutatingWebhookConfigurationManager{
  		lister:                        informer.Lister(),
  		createMutatingWebhookAccessor: webhook.NewMutatingWebhookAccessor,
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go b/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
 --- a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
 +++ b/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating_webhook_manager.go
-@@ -27,6 +27,7 @@ import (
+@@ -29,6 +29,7 @@ import (
  	"k8s.io/apiserver/pkg/admission/plugin/webhook"
  	"k8s.io/apiserver/pkg/admission/plugin/webhook/generic"
  	"k8s.io/client-go/informers"
@@ -112,14 +112,14 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/configuration/validating
  	admissionregistrationlisters "k8s.io/client-go/listers/admissionregistration/v1"
  	"k8s.io/client-go/tools/cache"
  	"k8s.io/client-go/tools/cache/synctrack"
-@@ -52,6 +53,10 @@ var _ generic.Source = &validatingWebhookConfigurationManager{}
+@@ -55,6 +56,10 @@ var _ generic.Source = &validatingWebhookConfigurationManager{}
  
- func NewValidatingWebhookConfigurationManager(f informers.SharedInformerFactory) generic.Source {
+ func NewValidatingWebhookConfigurationManager(f informers.SharedInformerFactory, excludedWebhookResources sets.Set[schema.GroupResource]) generic.Source {
  	informer := f.Admissionregistration().V1().ValidatingWebhookConfigurations()
-+	return NewValidatingWebhookConfigurationManagerForInformer(informer)
++	return NewValidatingWebhookConfigurationManagerForInformer(informer, excludedWebhookResources)
 +}
 +
-+func NewValidatingWebhookConfigurationManagerForInformer(informer admissionregistrationinformers.ValidatingWebhookConfigurationInformer) generic.Source {
++func NewValidatingWebhookConfigurationManagerForInformer(informer admissionregistrationinformers.ValidatingWebhookConfigurationInformer, excludedWebhookResources sets.Set[schema.GroupResource]) generic.Source {
  	manager := &validatingWebhookConfigurationManager{
  		lister:                          informer.Lister(),
  		createValidatingWebhookAccessor: webhook.NewValidatingWebhookAccessor,
@@ -134,7 +134,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/interfaces.go b/staging/
  	"k8s.io/apimachinery/pkg/runtime"
  	"k8s.io/apimachinery/pkg/runtime/schema"
  	auditinternal "k8s.io/apiserver/pkg/apis/audit"
-@@ -59,6 +60,9 @@ type Attributes interface {
+@@ -60,6 +61,9 @@ type Attributes interface {
  	// GetUserInfo is information about the requesting user
  	GetUserInfo() user.Info
  
@@ -212,7 +212,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  		}
  		// allow all operations to namespaces
  		return nil
-@@ -114,10 +121,9 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+@@ -119,10 +126,9 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
  
  	var (
  		exists bool
@@ -224,7 +224,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  	if err != nil {
  		if !errors.IsNotFound(err) {
  			return errors.NewInternalError(err)
-@@ -130,7 +136,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+@@ -135,7 +141,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
  		// give the cache time to observe the namespace before rejecting a create.
  		// this helps when creating a namespace and immediately creating objects within it.
  		time.Sleep(missingNamespaceWait)
@@ -233,7 +233,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  		switch {
  		case errors.IsNotFound(err):
  			// no-op
-@@ -146,7 +152,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+@@ -151,7 +157,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
  
  	// forceLiveLookup if true will skip looking at local cache state and instead always make a live call to server.
  	forceLiveLookup := false
@@ -242,7 +242,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  		// we think the namespace was marked for deletion, but our current local cache says otherwise, we will force a live lookup.
  		forceLiveLookup = exists && namespace.Status.Phase == v1.NamespaceActive
  	}
-@@ -154,7 +160,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
+@@ -159,7 +165,7 @@ func (l *Lifecycle) Admit(ctx context.Context, a admission.Attributes, o admissi
  	// refuse to operate on non-existent namespaces
  	if !exists || forceLiveLookup {
  		// as a last resort, make a call directly to storage
@@ -251,7 +251,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/namespace/lifecyc
  		switch {
  		case errors.IsNotFound(err):
  			return err
-@@ -200,14 +206,14 @@ func newLifecycleWithClock(immortalNamespaces sets.Set[string], clock utilcache.
+@@ -205,14 +211,14 @@ func newLifecycleWithClock(immortalNamespaces sets.Set[string], clock utilcache.
  }
  
  // SetExternalKubeInformerFactory implements the WantsExternalKubeInformerFactory interface.

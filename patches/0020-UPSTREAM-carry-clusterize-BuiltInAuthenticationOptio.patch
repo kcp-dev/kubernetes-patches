@@ -20,7 +20,7 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	"github.com/spf13/pflag"
  
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-@@ -50,7 +52,6 @@ import (
+@@ -48,7 +50,6 @@ import (
  	"k8s.io/apiserver/pkg/util/filesystem"
  	"k8s.io/apiserver/plugin/pkg/authenticator/token/oidc"
  	"k8s.io/client-go/informers"
@@ -28,7 +28,7 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	certutil "k8s.io/client-go/util/cert"
  	"k8s.io/client-go/util/keyutil"
  	cliflag "k8s.io/component-base/cli/flag"
-@@ -674,8 +675,8 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+@@ -671,8 +672,8 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
  	egressSelector *egressselector.EgressSelector,
  	openAPIConfig *openapicommon.Config,
  	openAPIV3Config *openapicommon.OpenAPIV3Config,
@@ -39,7 +39,7 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  	apiServerID string) error {
  	if o == nil {
  		return nil
-@@ -711,7 +712,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+@@ -708,7 +709,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
  	if o.ServiceAccounts != nil && o.ServiceAccounts.OptionalTokenGetter != nil {
  		authenticatorConfig.ServiceAccountTokenGetter = o.ServiceAccounts.OptionalTokenGetter(versionedInformer)
  	} else {
@@ -48,7 +48,7 @@ diff --git a/pkg/kubeapiserver/options/authentication.go b/pkg/kubeapiserver/opt
  			extclient,
  			versionedInformer.Core().V1().Secrets().Lister(),
  			versionedInformer.Core().V1().ServiceAccounts().Lister(),
-@@ -721,7 +722,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
+@@ -720,7 +721,7 @@ func (o *BuiltInAuthenticationOptions) ApplyTo(
  
  	if authenticatorConfig.BootstrapToken {
  		authenticatorConfig.BootstrapTokenAuthenticator = bootstrap.NewTokenAuthenticator(

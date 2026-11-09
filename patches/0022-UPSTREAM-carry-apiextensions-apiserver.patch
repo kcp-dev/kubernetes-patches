@@ -3,13 +3,14 @@ From: "Dr. Stefan Schimanski" <stefan.schimanski@gmail.com>
 Date: Wed, 27 Sep 2023 12:31:44 +0200
 Subject: [PATCH] UPSTREAM: <carry>: apiextensions-apiserver
 
+Co-authored-by: Simon Bein <simontheleg@gmail.com>
 Co-authored-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
 Signed-off-by: Dr. Stefan Schimanski <stefan.schimanski@gmail.com>
 Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
 Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
- .../apiextensions/validation/validation.go    | 208 +++++----
+ .../apiextensions/validation/validation.go    | 218 ++++-----
  .../validation/validation_kcp.go              |  45 ++
  .../validation/validation_test.go             | 238 +++++-----
  .../pkg/apiserver/apiserver.go                |  91 +++-
@@ -22,7 +23,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  .../apiserver/customresource_handler_kcp.go   |  60 +++
  ...stomresource_handler_tableconverter_kcp.go |  28 ++
  .../apiserver/customresource_handler_test.go  |  26 +-
- .../pkg/apiserver/rest_options_getter_kcp.go  |  71 +++
+ .../pkg/apiserver/rest_options_getter_kcp.go  |  72 +++
  .../pkg/apiserver/schema/kubeopenapi.go       |  10 +
  .../apiapproval/apiapproval_controller.go     |  30 +-
  .../establish/establishing_controller.go      |  35 +-
@@ -32,7 +33,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  .../controller/openapi/builder/builder_kcp.go |  49 ++
  .../pkg/controller/openapi/controller.go      | 155 ++++---
  .../pkg/controller/openapiv3/controller.go    |  33 +-
- .../controller/status/naming_controller.go    |  95 ++--
+ .../controller/status/naming_controller.go    |  97 ++--
  .../status/naming_controller_kcp_test.go      | 114 +++++
  .../pkg/kcp/cluster_aware_crd_lister.go       |  42 ++
  .../pkg/registry/customresource/etcd.go       |   6 +-
@@ -42,10 +43,9 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
  .../pkg/registry/customresource/strategy.go   |  15 +-
  .../pkg/registry/customresource/validator.go  |  11 +-
  .../pkg/endpoints/openapi/openapi.go          |  16 +-
- .../pkg/registry/generic/registry/store.go    |   3 +-
  .../pkg/storage/cacher/lister_watcher.go      |   4 +-
  .../apiserver/pkg/util/openapi/proto.go       |  22 +
- 36 files changed, 1803 insertions(+), 1381 deletions(-)
+ 35 files changed, 1807 insertions(+), 1387 deletions(-)
  create mode 100644 staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation_kcp.go
  create mode 100644 staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/conversion/wildcard_partial_metadata_converter_kcp.go
  delete mode 100644 staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customresource_discovery_controller.go
@@ -61,7 +61,7 @@ Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/validation/validation.go
-@@ -75,26 +75,39 @@ var supportedValidationReason = sets.NewString(
+@@ -77,26 +77,38 @@ var supportedValidationReason = sets.NewString(
  func ValidateCustomResourceDefinition(ctx context.Context, obj *apiextensions.CustomResourceDefinition) field.ErrorList {
  	nameValidationFn := func(name string, prefix bool) []string {
  		ret := genericvalidation.NameIsDNSSubdomain(name, prefix)
@@ -96,6 +96,8 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
 -		requireAtomicSetType:                     true,
 -		requireMapListKeysMapSetValidation:       true,
 -		celEnvironmentSet:                        environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()),
+-		// allowInvalidCABundle is set to true since the CRD is not established yet.
+-		allowInvalidCABundle: true,
 +	opts := ValidationOptions{
 +		AllowDefaults:                            true,
 +		RequireRecognizedConversionReviewVersion: true,
@@ -106,15 +108,13 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
 +		RequirePrunedDefaults:                    true,
 +		RequireAtomicSetType:                     true,
 +		RequireMapListKeysMapSetValidation:       true,
-+		// strictCost is always true to enforce cost limits.
-+		CELEnvironmentSet: environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()),
- 		// allowInvalidCABundle is set to true since the CRD is not established yet.
--		allowInvalidCABundle: true,
++		CELEnvironmentSet:                        environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()),
++		// AllowInvalidCABundle is set to true since the CRD is not established yet.
 +		AllowInvalidCABundle: true,
  	}
  
- 	allErrs := genericvalidation.ValidateObjectMeta(&obj.ObjectMeta, false, nameValidationFn, field.NewPath("metadata"))
-@@ -106,48 +119,48 @@ func ValidateCustomResourceDefinition(ctx context.Context, obj *apiextensions.Cu
+ 	allErrs := genericvalidation.ValidateObjectMetaDeclaratively(ctx, operation.Create, &obj.ObjectMeta, nil, false, nameValidationFn, field.NewPath("metadata"), utilfeature.DefaultFeatureGate.Enabled(features.DeclarativeValidationBeta))
+@@ -108,48 +120,48 @@ func ValidateCustomResourceDefinition(ctx context.Context, obj *apiextensions.Cu
  	return allErrs
  }
  
@@ -143,7 +143,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
 +type ValidationOptions struct {
 +	// AllowDefaults permits the validation schema to contain default attributes
 +	AllowDefaults bool
-+	// DisallowDefaultsReason gives a reason as to why AllowDefaults is false (for better user feedback)
++	// DisallowDefaultsReason gives a reason as to why allowDefaults is false (for better user feedback)
 +	DisallowDefaultsReason string
 +	// RequireRecognizedConversionReviewVersion requires accepted webhook conversion versions to contain a recognized version
 +	RequireRecognizedConversionReviewVersion bool
@@ -196,7 +196,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  }
  
  type preexistingExpressions struct {
-@@ -218,9 +231,9 @@ func findVersionsWithUnchangedSchemas(obj, oldObject *apiextensions.CustomResour
+@@ -220,9 +232,9 @@ func findVersionsWithUnchangedSchemas(obj, oldObject *apiextensions.CustomResour
  
  // suppressExpressionCostForUnchangedSchema returns a copy of opts with suppressPerExpressionCost set to true if
  // the specified version's schema is unchanged.
@@ -209,7 +209,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	}
  	return opts
  }
-@@ -228,28 +241,29 @@ func suppressExpressionCostForUnchangedSchema(opts validationOptions, version st
+@@ -230,28 +242,28 @@ func suppressExpressionCostForUnchangedSchema(opts validationOptions, version st
  // ValidateCustomResourceDefinitionUpdate statically validates
  // context is passed for supporting context cancellation during cel validation when validating defaults
  func ValidateCustomResourceDefinitionUpdate(ctx context.Context, obj, oldObj *apiextensions.CustomResourceDefinition) field.ErrorList {
@@ -240,23 +240,22 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
 +		RequireMapListKeysMapSetValidation:       requireMapListKeysMapSetValidation(&oldObj.Spec),
 +		PreexistingExpressions:                   findPreexistingExpressions(&oldObj.Spec),
 +		VersionsWithUnchangedSchemas:             findVersionsWithUnchangedSchemas(obj, oldObj),
-+		// strictCost is always true to enforce cost limits.
-+		CELEnvironmentSet:            environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()),
-+		AllowInvalidCABundle:         allowInvalidCABundle(oldObj),
-+		AllowTooManySelectableFields: findTooManySelectableFieldsAllowed(obj, oldObj),
++		CELEnvironmentSet:                        environment.MustBaseEnvSet(environment.DefaultCompatibilityVersion()),
++		AllowInvalidCABundle:                     allowInvalidCABundle(oldObj),
++		AllowTooManySelectableFields:             findTooManySelectableFieldsAllowed(obj, oldObj),
  	}
  	return validateCustomResourceDefinitionUpdate(ctx, obj, oldObj, opts)
  }
  
 -func validateCustomResourceDefinitionUpdate(ctx context.Context, obj, oldObj *apiextensions.CustomResourceDefinition, opts validationOptions) field.ErrorList {
 +func validateCustomResourceDefinitionUpdate(ctx context.Context, obj, oldObj *apiextensions.CustomResourceDefinition, opts ValidationOptions) field.ErrorList {
- 	allErrs := genericvalidation.ValidateObjectMetaUpdate(&obj.ObjectMeta, &oldObj.ObjectMeta, field.NewPath("metadata"))
+ 	allErrs := genericvalidation.ValidateObjectMetaDeclaratively(ctx, operation.Update, &obj.ObjectMeta, &oldObj.ObjectMeta, false, nil, field.NewPath("metadata"), utilfeature.DefaultFeatureGate.Enabled(features.DeclarativeValidationBeta))
 -	allErrs = append(allErrs, validateCustomResourceDefinitionSpecUpdate(ctx, &obj.Spec, &oldObj.Spec, opts, field.NewPath("spec"))...)
 +	allErrs = append(allErrs, ValidateCustomResourceDefinitionSpecUpdate(ctx, &obj.Spec, &oldObj.Spec, opts, field.NewPath("spec"))...)
  	allErrs = append(allErrs, ValidateCustomResourceDefinitionStatus(&obj.Status, field.NewPath("status"))...)
  	allErrs = append(allErrs, ValidateCustomResourceDefinitionStoredVersions(obj.Status.StoredVersions, obj.Spec.Versions, field.NewPath("status").Child("storedVersions"))...)
  	allErrs = append(allErrs, validateAPIApproval(obj, oldObj)...)
-@@ -293,13 +307,13 @@ func ValidateUpdateCustomResourceDefinitionStatus(obj, oldObj *apiextensions.Cus
+@@ -295,13 +307,13 @@ func ValidateUpdateCustomResourceDefinitionStatus(ctx context.Context, obj, oldO
  
  // validateCustomResourceDefinitionVersion statically validates.
  // context is passed for supporting context cancellation during cel validation when validating defaults
@@ -273,7 +272,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	allErrs = append(allErrs, ValidateCustomResourceDefinitionSubresources(version.Subresources, fldPath.Child("subresources"))...)
  	for i := range version.AdditionalPrinterColumns {
  		allErrs = append(allErrs, ValidateCustomResourceColumnDefinition(&version.AdditionalPrinterColumns[i], fldPath.Child("additionalPrinterColumns").Index(i))...)
-@@ -319,7 +333,7 @@ func validateCustomResourceDefinitionVersion(ctx context.Context, version *apiex
+@@ -321,7 +333,7 @@ func validateCustomResourceDefinitionVersion(ctx context.Context, version *apiex
  	return allErrs
  }
  
@@ -282,7 +281,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	if !deprecated && deprecationWarning != nil {
  		return []string{"can only be set for deprecated versions"}
  	}
-@@ -350,11 +364,15 @@ func validateDeprecationWarning(deprecated bool, deprecationWarning *string) []s
+@@ -352,11 +364,15 @@ func validateDeprecationWarning(deprecated bool, deprecationWarning *string) []s
  }
  
  // context is passed for supporting context cancellation during cel validation when validating defaults
@@ -301,7 +300,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	} else if errs := utilvalidation.IsDNS1123Subdomain(spec.Group); len(errs) > 0 {
  		allErrs = append(allErrs, field.Invalid(fldPath.Child("group"), spec.Group, strings.Join(errs, ",")))
  	} else if len(strings.Split(spec.Group, ".")) < 2 {
-@@ -365,10 +383,10 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
+@@ -367,10 +383,10 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
  
  	// enabling pruning requires structural schemas
  	if spec.PreserveUnknownFields == nil || *spec.PreserveUnknownFields == false {
@@ -314,7 +313,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  		// check that either a global schema or versioned schemas are set in all versions
  		if spec.Validation == nil || spec.Validation.OpenAPIV3Schema == nil {
  			for i, v := range spec.Versions {
-@@ -388,14 +406,14 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
+@@ -390,14 +406,14 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
  			}
  		}
  	}
@@ -332,7 +331,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	}
  
  	storageFlagCount := 0
-@@ -469,7 +487,7 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
+@@ -471,7 +487,7 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
  	}
  
  	allErrs = append(allErrs, ValidateCustomResourceDefinitionNames(&spec.Names, fldPath.Child("names"))...)
@@ -341,7 +340,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	allErrs = append(allErrs, ValidateCustomResourceDefinitionSubresources(spec.Subresources, fldPath.Child("subresources"))...)
  
  	for i := range spec.AdditionalPrinterColumns {
-@@ -494,7 +512,7 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
+@@ -496,7 +512,7 @@ func validateCustomResourceDefinitionSpec(ctx context.Context, spec *apiextensio
  	if (spec.Conversion != nil && spec.Conversion.Strategy != apiextensions.NoneConverter) && (spec.PreserveUnknownFields == nil || *spec.PreserveUnknownFields) {
  		allErrs = append(allErrs, field.Invalid(fldPath.Child("conversion").Child("strategy"), spec.Conversion.Strategy, "must be None if spec.preserveUnknownFields is true"))
  	}
@@ -350,9 +349,30 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  
  	return allErrs
  }
-@@ -646,10 +664,10 @@ func validateCustomResourceConversion(conversion *apiextensions.CustomResourceCo
+@@ -611,7 +627,7 @@ func hasValidConversionReviewVersionOrEmpty(versions []string) bool {
+ 	return false
+ }
  
- // validateCustomResourceDefinitionSpecUpdate statically validates
+-func validateCustomResourceConversion(conversion *apiextensions.CustomResourceConversion, requireRecognizedVersion bool, fldPath *field.Path, opts validationOptions) field.ErrorList {
++func validateCustomResourceConversion(conversion *apiextensions.CustomResourceConversion, requireRecognizedVersion bool, fldPath *field.Path, opts ValidationOptions) field.ErrorList {
+ 	allErrs := field.ErrorList{}
+ 	if conversion == nil {
+ 		return allErrs
+@@ -630,7 +646,7 @@ func validateCustomResourceConversion(conversion *apiextensions.CustomResourceCo
+ 			case cc.Service != nil:
+ 				allErrs = append(allErrs, webhook.ValidateWebhookService(fldPath.Child("webhookClientConfig").Child("service"), cc.Service.Name, cc.Service.Namespace, cc.Service.Path, cc.Service.Port)...)
+ 			}
+-			if len(cc.CABundle) > 0 && !opts.allowInvalidCABundle {
++			if len(cc.CABundle) > 0 && !opts.AllowInvalidCABundle {
+ 				allErrs = append(allErrs, webhook.ValidateCABundle(fldPath.Child("webhookClientConfig").Child("caBundle"), cc.CABundle)...)
+ 			}
+ 		}
+@@ -646,12 +662,12 @@ func validateCustomResourceConversion(conversion *apiextensions.CustomResourceCo
+ 	return allErrs
+ }
+ 
+-// validateCustomResourceDefinitionSpecUpdate statically validates
++// ValidateCustomResourceDefinitionSpecUpdate statically validates
  // context is passed for supporting context cancellation during cel validation when validating defaults
 -func validateCustomResourceDefinitionSpecUpdate(ctx context.Context, spec, oldSpec *apiextensions.CustomResourceDefinitionSpec, opts validationOptions, fldPath *field.Path) field.ErrorList {
 +func ValidateCustomResourceDefinitionSpecUpdate(ctx context.Context, spec, oldSpec *apiextensions.CustomResourceDefinitionSpec, opts ValidationOptions, fldPath *field.Path) field.ErrorList {
@@ -363,7 +383,25 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  		// these effect the storage and cannot be changed therefore
  		allErrs = append(allErrs, genericvalidation.ValidateImmutableField(spec.Scope, oldSpec.Scope, fldPath.Child("scope"))...)
  		allErrs = append(allErrs, genericvalidation.ValidateImmutableField(spec.Names.Kind, oldSpec.Names.Kind, fldPath.Child("names", "kind"))...)
-@@ -903,9 +921,9 @@ type specStandardValidator interface {
+@@ -846,7 +862,7 @@ func ValidateCustomResourceColumnDefinition(col *apiextensions.CustomResourceCol
+ 	return allErrs
+ }
+ 
+-func ValidateCustomResourceSelectableFields(selectableFields []apiextensions.SelectableField, schema *structuralschema.Structural, fldPath *field.Path, opts validationOptions, version string) (allErrs field.ErrorList) {
++func ValidateCustomResourceSelectableFields(selectableFields []apiextensions.SelectableField, schema *structuralschema.Structural, fldPath *field.Path, opts ValidationOptions, version string) (allErrs field.ErrorList) {
+ 	uniqueSelectableFields := sets.New[string]()
+ 	for i, selectableField := range selectableFields {
+ 		indexFldPath := fldPath.Index(i)
+@@ -873,7 +889,7 @@ func ValidateCustomResourceSelectableFields(selectableFields []apiextensions.Sel
+ 		}
+ 	}
+ 	uniqueSelectableFieldCount := uniqueSelectableFields.Len()
+-	if uniqueSelectableFieldCount > MaxSelectableFields && !opts.allowTooManySelectableFields[version] {
++	if uniqueSelectableFieldCount > MaxSelectableFields && !opts.AllowTooManySelectableFields[version] {
+ 		allErrs = append(allErrs, field.TooMany(fldPath, uniqueSelectableFieldCount, MaxSelectableFields))
+ 	}
+ 	return allErrs
+@@ -905,9 +921,9 @@ type specStandardValidator interface {
  	withForbidOldSelfValidations(path *field.Path) specStandardValidator
  }
  
@@ -375,7 +413,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	allErrs := field.ErrorList{}
  
  	if customResourceValidation == nil {
-@@ -946,21 +964,21 @@ func validateCustomResourceDefinitionValidation(ctx context.Context, customResou
+@@ -948,21 +964,21 @@ func validateCustomResourceDefinitionValidation(ctx context.Context, customResou
  		}
  
  		openAPIV3Schema := &specStandardValidatorV3{
@@ -402,7 +440,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  				// this should never happen
  				allErrs = append(allErrs, field.Invalid(fldPath.Child("openAPIV3Schema"), "", err.Error()))
  			} else if len(validationErrors) > 0 {
-@@ -1028,7 +1046,7 @@ func (o *OpenAPISchemaErrorList) AllErrors() field.ErrorList {
+@@ -1030,7 +1046,7 @@ func (o *OpenAPISchemaErrorList) AllErrors() field.ErrorList {
  }
  
  // ValidateCustomResourceDefinitionOpenAPISchema statically validates
@@ -411,7 +449,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  	allErrs := &OpenAPISchemaErrorList{SchemaErrors: field.ErrorList{}, CELErrors: field.ErrorList{}}
  
  	if schema == nil {
-@@ -1162,7 +1180,7 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
+@@ -1164,7 +1180,7 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
  		} else {
  			allErrs.SchemaErrors = append(allErrs.SchemaErrors, field.Invalid(fldPath.Child("type"), schema.Type, "must be array if x-kubernetes-list-type is specified"))
  		}
@@ -420,7 +458,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  		is := schema.Items.Schema
  		switch is.Type {
  		case "array":
-@@ -1223,7 +1241,7 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
+@@ -1225,7 +1241,7 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
  		}
  	}
  
@@ -429,7 +467,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  		allErrs.SchemaErrors = append(allErrs.SchemaErrors, validateMapListKeysMapSet(schema, fldPath)...)
  	}
  	if len(schema.XValidations) > 0 {
-@@ -1272,13 +1290,13 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
+@@ -1274,13 +1290,13 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
  			} else if typeInfo == nil {
  				allErrs.CELErrors = append(allErrs.CELErrors, field.InternalError(fldPath.Child("x-kubernetes-validations"), fmt.Errorf("internal error: failed to retrieve type information for x-kubernetes-validations")))
  			} else {
@@ -445,7 +483,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  							costErrorMsg := getCostErrorMessage("estimated rule cost", expressionCost, StaticEstimatedCostLimit)
  							allErrs.CELErrors = append(allErrs.CELErrors, field.Forbidden(fldPath.Child("x-kubernetes-validations").Index(i).Child("rule"), costErrorMsg))
  						}
-@@ -1296,7 +1314,7 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
+@@ -1298,7 +1314,7 @@ func ValidateCustomResourceDefinitionOpenAPISchema(schema *apiextensions.JSONSch
  							allErrs.CELErrors = append(allErrs.CELErrors, field.Invalid(fldPath.Child("x-kubernetes-validations").Index(i).Child("messageExpression"), schema.XValidations[i], cr.MessageExpressionError.Detail))
  						} else {
  							if cr.MessageExpression != nil {
@@ -1222,7 +1260,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11090,7 +11090,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11106,7 +11106,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "x-kubernetes-validations rule invalidated by messageExpression exceeding per-CRD estimated cost limit",
@@ -1231,7 +1269,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11123,7 +11123,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11139,7 +11139,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "x-kubernetes-validations rule invalidated by messageExpression being only empty spaces",
@@ -1240,7 +1278,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11146,7 +11146,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11162,7 +11162,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "forbid transition rule on element of list of type atomic when optionalOldSelf is set",
@@ -1249,7 +1287,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11173,7 +11173,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11189,7 +11189,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "forbid transition rule on element of list defaulting to type atomic when optionalOldSelf is set",
@@ -1258,7 +1296,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11199,7 +11199,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11215,7 +11215,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "forbid transition rule on element of list of type set when optionalOldSelf is set",
@@ -1267,7 +1305,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11227,7 +11227,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11243,7 +11243,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "forbid transition rule on element of map of unrecognized type when optionalOldSelf is set",
@@ -1276,7 +1314,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11255,7 +11255,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11271,7 +11271,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "forbid setting optionalOldSelf to true if oldSelf is not used",
@@ -1285,7 +1323,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11276,7 +11276,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11292,7 +11292,7 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  		},
  		{
  			name: "forbid setting optionalOldSelf to false if oldSelf is not used",
@@ -1294,7 +1332,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  			input: apiextensions.CustomResourceValidation{
  				OpenAPIV3Schema: &apiextensions.JSONSchemaProps{
  					Type: "object",
-@@ -11299,10 +11299,10 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
+@@ -11315,10 +11315,10 @@ func TestValidateCustomResourceDefinitionValidation(t *testing.T) {
  	for _, tt := range tests {
  		t.Run(tt.name, func(t *testing.T) {
  			ctx := context.TODO()
@@ -1308,7 +1346,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  
  			seenErrs := make([]bool, len(got))
  
-@@ -11642,7 +11642,7 @@ func Test_validateDeprecationWarning(t *testing.T) {
+@@ -11658,7 +11658,7 @@ func Test_validateDeprecationWarning(t *testing.T) {
  	}
  	for _, tt := range tests {
  		t.Run(tt.name, func(t *testing.T) {
@@ -1317,7 +1355,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
  				t.Errorf("validateDeprecationWarning() = %v, want %v", got, tt.want)
  			}
  		})
-@@ -11822,13 +11822,13 @@ func TestCelContext(t *testing.T) {
+@@ -11838,13 +11838,13 @@ func TestCelContext(t *testing.T) {
  			}
  			celContext := RootCELContext(tt.schema)
  			celContext.converter = converter
@@ -1339,7 +1377,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.go
-@@ -22,13 +22,14 @@ import (
+@@ -22,14 +22,15 @@ import (
  	"net/http"
  	"time"
  
@@ -1351,12 +1389,13 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
  	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
  	"k8s.io/apiextensions-apiserver/pkg/apiserver/conversion"
+ 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 -	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 -	externalinformers "k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions"
  	"k8s.io/apiextensions-apiserver/pkg/controller/apiapproval"
  	"k8s.io/apiextensions-apiserver/pkg/controller/establish"
  	"k8s.io/apiextensions-apiserver/pkg/controller/finalizer"
-@@ -36,6 +37,7 @@ import (
+@@ -37,6 +38,7 @@ import (
  	openapicontroller "k8s.io/apiextensions-apiserver/pkg/controller/openapi"
  	openapiv3controller "k8s.io/apiextensions-apiserver/pkg/controller/openapiv3"
  	"k8s.io/apiextensions-apiserver/pkg/controller/status"
@@ -1364,7 +1403,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	"k8s.io/apiextensions-apiserver/pkg/registry/customresourcedefinition"
  	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
  	"k8s.io/apimachinery/pkg/runtime"
-@@ -85,6 +87,16 @@ type ExtraConfig struct {
+@@ -86,6 +88,16 @@ type ExtraConfig struct {
  
  	// ConversionFactory is used to provider converters for CRs.
  	ConversionFactory conversion.Factory
@@ -1381,7 +1420,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  }
  
  type Config struct {
-@@ -106,7 +118,17 @@ type CustomResourceDefinitions struct {
+@@ -107,7 +119,17 @@ type CustomResourceDefinitions struct {
  	GenericAPIServer *genericapiserver.GenericAPIServer
  
  	// provided for easier embedding
@@ -1400,7 +1439,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  }
  
  // Complete fills in any fields not set that are required to have valid data. It's mutating the receiver.
-@@ -159,31 +181,49 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+@@ -161,31 +183,49 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
  		return nil, err
  	}
  
@@ -1462,7 +1501,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  		s.Informers.Apiextensions().V1().CustomResourceDefinitions(),
  		delegateHandler,
  		c.ExtraConfig.CRDRESTOptionsGetter,
-@@ -196,10 +236,18 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+@@ -198,10 +238,18 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
  		time.Duration(c.GenericConfig.MinRequestTimeout)*time.Second,
  		apiGroupInfo.StaticOpenAPISpec,
  		c.GenericConfig.MaxRequestBodyBytes,
@@ -1481,7 +1520,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	s.GenericAPIServer.Handler.NonGoRestfulMux.Handle("/apis", crdHandler)
  	s.GenericAPIServer.Handler.NonGoRestfulMux.HandlePrefix("/apis/", crdHandler)
  	s.GenericAPIServer.RegisterDestroyFunc(crdHandler.destroy)
-@@ -208,8 +256,10 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+@@ -210,8 +258,10 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
  	if aggregatedDiscoveryManager != nil {
  		aggregatedDiscoveryManager = aggregatedDiscoveryManager.WithSource(aggregated.CRDSource)
  	}
@@ -1494,7 +1533,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/apiserver.
  	nonStructuralSchemaController := nonstructuralschema.NewConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
  	apiApprovalController := apiapproval.NewKubernetesAPIApprovalPolicyConformantConditionController(s.Informers.Apiextensions().V1().CustomResourceDefinitions(), crdClient.ApiextensionsV1())
  	finalizingController := finalizer.NewCRDFinalizer(
-@@ -245,13 +295,6 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
+@@ -247,13 +297,6 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
  		go apiApprovalController.RunWithContext(5, hookContext)
  		go finalizingController.RunWithContext(5, hookContext)
  
@@ -3068,7 +3107,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customreso
 +	req = utilnet.CloneRequest(req)
 +	req = req.WithContext(kcpapi.WithCustomResourceIndicator(req.Context()))
 +
- 	terminating := apiextensionshelpers.IsCRDConditionTrue(crd, apiextensionsv1.Terminating)
+ 	terminating := !crd.DeletionTimestamp.IsZero() || apiextensionshelpers.IsCRDConditionTrue(crd, apiextensionsv1.Terminating)
  
 -	crdInfo, err := r.getOrCreateServingInfoFor(crd.UID, crd.Name)
 +	crdInfo, err := r.getOrCreateServingInfoFor(crd)
@@ -3439,7 +3478,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customreso
  			},
  			crd.Status.AcceptedNames.Categories,
  			table,
-@@ -985,17 +1230,21 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
+@@ -984,17 +1229,21 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
  			Authorizer: r.authorizer,
  
  			MaxRequestBodyBytes: r.maxRequestBodyBytes,
@@ -3470,7 +3509,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customreso
  		}
  		requestScopes[v.Name] = &reqScope
  
-@@ -1028,7 +1277,7 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
+@@ -1024,7 +1273,7 @@ func (r *crdHandler) getOrCreateServingInfoFor(uid types.UID, name string) (*crd
  		}
  		scaleScope.TableConvertor = scaleTable
  
@@ -3479,7 +3518,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/customreso
  			scaleScope, err = scopeWithFieldManager(
  				typeConverter,
  				scaleScope,
-@@ -1486,7 +1735,10 @@ func hasServedCRDVersion(spec *apiextensionsv1.CustomResourceDefinitionSpec, ver
+@@ -1482,7 +1731,10 @@ func hasServedCRDVersion(spec *apiextensionsv1.CustomResourceDefinitionSpec, ver
  // buildOpenAPIModelsForApply constructs openapi models from any validation schemas specified in the custom resource,
  // and merges it with the models defined in the static OpenAPI spec.
  // Returns nil models ifthe static spec is nil, or an error is encountered.
@@ -3640,7 +3679,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_optio
 new file mode 100644
 --- /dev/null
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/apiserver/rest_options_getter_kcp.go
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +package apiserver
 +
 +import (
@@ -3651,6 +3690,7 @@ new file mode 100644
 +	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 +
 +	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
++	"k8s.io/apimachinery/pkg/runtime"
 +	"k8s.io/apimachinery/pkg/runtime/schema"
 +	"k8s.io/apiserver/pkg/registry/generic"
 +	"k8s.io/apiserver/pkg/storage/storagebackend"
@@ -3661,8 +3701,8 @@ new file mode 100644
 +	crd      *apiextensionsv1.CustomResourceDefinition
 +}
 +
-+func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource) (generic.RESTOptions, error) {
-+	ret, err := t.delegate.GetRESTOptions(resource)
++func (t apiBindingAwareCRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource, example runtime.Object) (generic.RESTOptions, error) {
++	ret, err := t.delegate.GetRESTOptions(resource, example)
 +	if err != nil {
 +		return ret, err
 +	}
@@ -4656,6 +4696,15 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/controller/status/na
  		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
  			workqueue.DefaultTypedControllerRateLimiter[string](),
  			workqueue.TypedRateLimitingQueueConfig[string]{Name: "crd_naming_condition_controller"},
+@@ -77,7 +83,7 @@ func NewNamingConditionController(
+ 	}
+ 
+ 	informerIndexer := crdInformer.Informer().GetIndexer()
+-	c.crdMutationCache = cache.NewIntegerResourceVersionMutationCache(logger, informerIndexer, informerIndexer, 60*time.Second, false)
++	c.crdMutationCache = kcpthirdpartycache.NewIntegerResourceVersionMutationCache(logger, kcpcache.DeletionHandlingMetaClusterNamespaceKeyFunc, informerIndexer, informerIndexer, 60*time.Second, false)
+ 
+ 	crdInformer.Informer().AddEventHandlerWithOptions(cache.ResourceEventHandlerFuncs{
+ 		AddFunc:    c.addCustomResourceDefinition,
 @@ -94,11 +100,11 @@ func NewNamingConditionController(
  	return c
  }
@@ -5336,7 +5385,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresou
 diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go
 --- a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go
 +++ b/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresource/validator.go
-@@ -37,6 +37,8 @@ import (
+@@ -41,6 +41,8 @@ import (
  )
  
  type customResourceValidator struct {
@@ -5345,16 +5394,7 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresou
  	namespaceScoped       bool
  	kind                  schema.GroupVersionKind
  	schemaValidator       apiextensionsvalidation.SchemaValidator
-@@ -50,7 +52,7 @@ func (a customResourceValidator) Validate(ctx context.Context, obj *unstructured
- 
- 	var allErrs field.ErrorList
- 
--	allErrs = append(allErrs, validation.ValidateObjectMetaAccessor(obj, a.namespaceScoped, validation.NameIsDNSSubdomain, field.NewPath("metadata"))...)
-+	allErrs = append(allErrs, validation.ValidateObjectMetaAccessor(obj, a.namespaceScoped, a.kcpValidateName, field.NewPath("metadata"))...)
- 	allErrs = append(allErrs, apiextensionsvalidation.ValidateCustomResource(nil, obj.UnstructuredContent(), a.schemaValidator)...)
- 	allErrs = append(allErrs, a.ValidateScaleSpec(ctx, obj, scale)...)
- 	allErrs = append(allErrs, a.ValidateScaleStatus(ctx, obj, scale)...)
-@@ -122,7 +124,12 @@ func (a customResourceValidator) ValidateTypeMeta(ctx context.Context, obj *unst
+@@ -126,7 +128,12 @@ func (a customResourceValidator) ValidateTypeMeta(ctx context.Context, obj *unst
  	if typeAccessor.GetKind() != a.kind.Kind {
  		allErrs = append(allErrs, field.Invalid(field.NewPath("kind"), typeAccessor.GetKind(), fmt.Sprintf("must be %v", a.kind.Kind)))
  	}
@@ -5368,6 +5408,15 @@ diff --git a/staging/src/k8s.io/apiextensions-apiserver/pkg/registry/customresou
  		allErrs = append(allErrs, field.Invalid(field.NewPath("apiVersion"), typeAccessor.GetAPIVersion(), fmt.Sprintf("must be %v", a.kind.Group+"/"+a.kind.Version)))
  	}
  	return allErrs
+@@ -188,7 +195,7 @@ func (a customResourceValidator) validateObjectMetaDeclaratively(ctx context.Con
+ 	if len(errs) > 0 {
+ 		return errs
+ 	}
+-	return validation.ValidateObjectMetaDeclaratively(ctx, operation.Create, metadata, nil, a.namespaceScoped, validation.NameIsDNSSubdomain, field.NewPath("metadata"), utilfeature.DefaultFeatureGate.Enabled(features.DeclarativeValidationBeta))
++	return validation.ValidateObjectMetaDeclaratively(ctx, operation.Create, metadata, nil, a.namespaceScoped, a.kcpValidateName, field.NewPath("metadata"), utilfeature.DefaultFeatureGate.Enabled(features.DeclarativeValidationBeta))
+ }
+ 
+ func (a customResourceValidator) validateObjectMetaUpdateDeclaratively(ctx context.Context, obj, old *unstructured.Unstructured) field.ErrorList {
 diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
 --- a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
 +++ b/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go
@@ -5410,19 +5459,6 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/endpoints/openapi/openapi.go b/sta
  		group, ok := gvkMap["group"].(string)
  		if !ok {
  			continue
-diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
---- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-+++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
-@@ -1704,7 +1704,8 @@ func (e *Store) CompleteWithOptions(options *generic.StoreOptions) error {
- 
- // startObservingCount starts monitoring given prefix and periodically updating metrics. It returns a function to stop collection.
- func (e *Store) startObservingCount(period time.Duration, objectCountTracker flowcontrolrequest.StorageObjectCountTracker) func() {
--	prefix := e.KeyRootFunc(genericapirequest.WithCluster(genericapirequest.NewContext(), genericapirequest.Cluster{Wildcard: true}))
-+	ctx := genericapirequest.WithCluster(genericapirequest.NewContext(), genericapirequest.Cluster{Wildcard: true})
-+	prefix := e.KeyRootFunc(genericapirequest.WithCluster(ctx, genericapirequest.Cluster{Wildcard: true}))
- 	resourceName := e.DefaultQualifiedResource.String()
- 	klog.V(2).InfoS("Monitoring resource count at path", "resource", resourceName, "path", "<storage-prefix>/"+prefix)
- 	stopCh := make(chan struct{})
 diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
 --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
 +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
@@ -5435,7 +5471,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b
  	}
  	if err := lw.storage.GetList(ctx, lw.kcpAwareResourcePrefix(), storageOpts, list); err != nil {
  		return nil, err
-@@ -139,7 +139,7 @@ func (lw *listerWatcher) Watch(options metav1.ListOptions) (watch.Interface, err
+@@ -140,7 +140,7 @@ func (lw *listerWatcher) Watch(options metav1.ListOptions) (watch.Interface, err
  	}
  
  	if lw.kcpExtraStorageMetadata != nil {

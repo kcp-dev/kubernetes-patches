@@ -5,6 +5,8 @@ Subject: [PATCH] UPSTREAM: <carry>: Clusterize ValidatingAdmissionPolicy
  admission plugin and policy plugin framework
 
 Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
 ---
  .../plugin/policy/generic/accessor.go         |  2 ++
  .../admission/plugin/policy/generic/plugin.go | 18 ++++++++-----
@@ -14,8 +16,10 @@ Signed-off-by: Marvin Beckers <marvin@kubermatic.com>
  .../policy/internal/generic/informer.go       |  5 ++--
  .../plugin/policy/internal/generic/lister.go  | 27 ++++++++++++-------
  .../plugin/policy/validating/accessor.go      |  9 +++++++
- .../plugin/policy/validating/plugin.go        | 13 +++++----
- 9 files changed, 71 insertions(+), 30 deletions(-)
+ .../plugin/policy/validating/plugin.go        |  7 +++--
+ .../plugin/policy/validating/plugin_kcp.go    | 21 +++++++++++++++
+ 10 files changed, 89 insertions(+), 27 deletions(-)
+ create mode 100644 staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin_kcp.go
 
 diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go
 --- a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/accessor.go
@@ -59,12 +63,12 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/pl
  // !TODO: Just pass in a Plugin[H] with accessors to all this information
 -type apiSourceFactory[H any] func(informers.SharedInformerFactory, kubernetes.Interface, dynamic.Interface, meta.RESTMapper) Source[H]
 +type apiSourceFactory[H any] func(informers.SharedInformerFactory, kubernetes.Interface, dynamic.Interface, meta.RESTMapper, logicalcluster.Name) Source[H]
- type dispatcherFactory[H any] func(authorizer.Authorizer, *matching.Matcher, kubernetes.Interface) Dispatcher[H]
+ type dispatcherFactory[H any] func(authorizer.UnconditionalAuthorizer, *matching.Matcher, kubernetes.Interface) Dispatcher[H]
  
  // ReloadableSource extends HookSource with a method to run a reload loop
 @@ -104,6 +106,9 @@ type Plugin[H any] struct {
  	stopCh            <-chan struct{}
- 	authorizer        authorizer.Authorizer
+ 	authorizer        authorizer.UnconditionalAuthorizer
  	enabled           bool
 +
 +	namespaceInformer coreinformers.NamespaceInformer
@@ -155,7 +159,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/po
  )
  
  // Interval for refreshing policies.
-@@ -114,11 +116,12 @@ func NewPolicySource[P runtime.Object, B runtime.Object, E Evaluator](
+@@ -119,11 +121,12 @@ func NewPolicySource[P runtime.Object, B runtime.Object, E Evaluator](
  	paramInformerFactory informers.SharedInformerFactory,
  	dynamicClient dynamic.Interface,
  	restMapper meta.RESTMapper,
@@ -170,7 +174,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/po
  		compiledPolicies:     map[types.NamespacedName]compiledPolicyEntry[E]{},
  		newPolicyAccessor:    newPolicyAccessor,
  		newBindingAccessor:   newBindingAccessor,
-@@ -477,6 +480,7 @@ func (s *policySource[P, B, E]) compilePolicyLocked(policySpec P) E {
+@@ -484,6 +487,7 @@ func (s *policySource[P, B, E]) compilePolicyLocked(policySpec P) E {
  		var emptyEvaluator E
  		return emptyEvaluator
  	}
@@ -189,7 +193,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/po
  	corev1 "k8s.io/api/core/v1"
  	"k8s.io/apimachinery/pkg/api/errors"
  	"k8s.io/apimachinery/pkg/api/meta"
-@@ -188,7 +189,7 @@ func NewPolicyTestContext[P, B runtime.Object, E Evaluator](
+@@ -189,7 +190,7 @@ func NewPolicyTestContext[P, B runtime.Object, E Evaluator](
  	var source Source[PolicyHook[P, B, E]]
  	plugin := NewPlugin[PolicyHook[P, B, E]](
  		admission.NewHandler(admission.Connect, admission.Create, admission.Delete, admission.Update),
@@ -198,7 +202,7 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/generic/po
  			source = NewPolicySource[P, B, E](
  				policyInformer,
  				bindingInformer,
-@@ -198,6 +199,7 @@ func NewPolicyTestContext[P, B runtime.Object, E Evaluator](
+@@ -199,6 +200,7 @@ func NewPolicyTestContext[P, B runtime.Object, E Evaluator](
  				sif,
  				i2,
  				r,
@@ -348,15 +352,6 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating
  	v1 "k8s.io/api/admissionregistration/v1"
  	"k8s.io/apimachinery/pkg/api/meta"
  	"k8s.io/apiserver/pkg/admission"
-@@ -87,7 +89,7 @@ func (a *Plugin) SetManifestLoaders(loaders *initializer.ManifestLoaders) {
- 	a.SetStaticSourceFactory(func(manifestsDir string) (generic.ReloadableSource[PolicyHook], error) {
- 		staticSource := source.NewStaticPolicySource(manifestsDir, a.GetAPIServerID(),
- 			func(p *v1.ValidatingAdmissionPolicy) (Validator, error) {
--				v := compilePolicy(p)
-+				v := CompilePolicy(p)
- 				if err := v.CompileError(); err != nil {
- 					return nil, err
- 				}
 @@ -117,16 +119,17 @@ func NewPlugin(configFile io.Reader) (*Plugin, error) {
  	p := &Plugin{
  		Plugin: generic.NewPlugin(
@@ -368,22 +363,38 @@ diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating
  					f.Admissionregistration().V1().ValidatingAdmissionPolicyBindings().Informer(),
  					NewValidatingAdmissionPolicyAccessor,
  					NewValidatingAdmissionPolicyBindingAccessor,
--					compilePolicy,
+ 					compilePolicy,
 -					f,
-+					CompilePolicy,
 +					nil, // TODO(embik): this was done in accordance with d0a7ccbaac22d32f219b4a2c4944e72e507c3d14.
  					dynamicClient,
  					restMapper,
 +					clusterName,
  				)
  			},
- 			func(a authorizer.Authorizer, m *matching.Matcher, client kubernetes.Interface) generic.Dispatcher[PolicyHook] {
-@@ -144,7 +147,7 @@ func (a *Plugin) Validate(ctx context.Context, attr admission.Attributes, o admi
- 	return a.Plugin.Dispatch(ctx, attr, o)
- }
- 
--func compilePolicy(policy *Policy) Validator {
+ 			func(a authorizer.UnconditionalAuthorizer, m *matching.Matcher, client kubernetes.Interface) generic.Dispatcher[PolicyHook] {
+diff --git a/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin_kcp.go b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin_kcp.go
+new file mode 100644
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/admission/plugin/policy/validating/plugin_kcp.go
+@@ -0,0 +1,21 @@
++/*
++Copyright 2026 The KCP Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package validating
++
 +func CompilePolicy(policy *Policy) Validator {
- 	hasParam := false
- 	if policy.Spec.ParamKind != nil {
- 		hasParam = true
++	return compilePolicy(policy)
++}

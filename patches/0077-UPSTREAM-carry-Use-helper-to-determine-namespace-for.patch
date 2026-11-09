@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: "Nelo-T. Wallus" <n.wallus@sap.com>
+Date: Mon, 1 Jun 2026 07:49:57 +0200
+Subject: [PATCH] UPSTREAM: <carry>: Use helper to determine "namespace" for
+ quota
+
+Signed-off-by: Nelo-T. Wallus <red.brush9525@fastmail.com>
+Signed-off-by: Nelo-T. Wallus <n.wallus@sap.com>
+---
+ pkg/controller/resourcequota/resource_quota_controller.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/pkg/controller/resourcequota/resource_quota_controller.go b/pkg/controller/resourcequota/resource_quota_controller.go
+--- a/pkg/controller/resourcequota/resource_quota_controller.go
++++ b/pkg/controller/resourcequota/resource_quota_controller.go
+@@ -381,7 +381,7 @@ func (rq *Controller) syncResourceQuota(ctx context.Context, resourceQuota *v1.R
+ 
+ 	var errs []error
+ 
+-	newUsage, err := quota.CalculateUsage(resourceQuota.Namespace, resourceQuota.Spec.Scopes, hardLimits, rq.registry, resourceQuota.Spec.ScopeSelector)
++	newUsage, err := quota.CalculateUsage(namespaceToCheck(resourceQuota), resourceQuota.Spec.Scopes, hardLimits, rq.registry, resourceQuota.Spec.ScopeSelector)
+ 	if err != nil {
+ 		// if err is non-nil, remember it to return, but continue updating status with any resources in newUsage
+ 		errs = append(errs, err)
